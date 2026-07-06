@@ -16,7 +16,7 @@ import Foundation
 
 /// Konfiguration fuer die Aufloesung lokaler Bilder.
 /// Ohne `ubiquityContainerIdentifier` werden nur Web-Bilder und der lokale Cache genutzt.
-public struct TypstImageResolverConfiguration: Sendable {
+public nonisolated struct TypstImageResolverConfiguration: Sendable {
     /// iCloud-Container, aus dessen Documents/-Verzeichnis lokale Bilder geladen werden
     /// (z.B. "iCloud.dk.materialOrganizer"). nil = kein iCloud-Zugriff.
     public var ubiquityContainerIdentifier: String?
@@ -41,7 +41,7 @@ public struct TypstImageResolverConfiguration: Sendable {
 // MARK: - Result-Typ
 
 /// Ergebnis der Bildauflösung: ggf. umgeschriebener Quelltext + geladene Bilddateien.
-public struct TypstImageResolutionResult: Sendable {
+public nonisolated struct TypstImageResolutionResult: Sendable {
     public let resolvedSource: String
     public let imageFiles: [ImageFile]
 
