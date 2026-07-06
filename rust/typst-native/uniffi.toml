@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "TypstNative"
+ffi_module_name = "TypstNativeFFI"
+generate_module_map = true

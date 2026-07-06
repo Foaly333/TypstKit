@@ -1,0 +1,44 @@
+[package]
+name = "typst-native"
+version = "0.1.0"
+edition = "2021"
+description = "Native Typst-Compiler-Bridge fuer iOS via UniFFI"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "typst_native"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }
+
+# Typst-Kern
+typst = "0.13"
+typst-pdf = "0.13"
+typst-svg = "0.13"
+typst-syntax = "0.13"
+
+# Eingebettete Standard-Schriften (Libertinus Serif, New Computer Modern,
+# New Computer Modern Math, DejaVu Sans Mono). Stellt sicher, dass
+# Standard-Text, Math-Modus und SVG-Export immer eine Schrift finden.
+typst-assets = { version = "0.13", features = ["fonts"], optional = true }
+
+# Unterstuetzende Bibliotheken
+time = { version = "0.3", features = ["formatting"] }
+ecow = "0.2"
+
+[features]
+default = ["embed-fonts"]
+# Deaktivierbar, falls Binary-Groesse wichtiger ist als garantierte Schriften
+embed-fonts = ["dep:typst-assets"]
+
+[profile.release]
+opt-level = "z"           # Groessenoptimierung
+lto = "fat"               # Maximale Link-Time-Optimierung
+strip = true              # Debug-Symbole entfernen
+codegen-units = 1         # Bessere Optimierung
+panic = "abort"           # Kein Unwinding-Overhead (~2-4% kleiner)
+overflow-checks = false   # Kein Overflow-Check in Release

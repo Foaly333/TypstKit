@@ -1,0 +1,4 @@
+framework module TypstNative {
+    header "TypstNativeFFI.h"
+    export *
+}
