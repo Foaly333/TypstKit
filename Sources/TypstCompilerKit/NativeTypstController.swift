@@ -183,7 +183,7 @@ public final class NativeTypstController {
 
     /// Standard-Dateinamens-Bereinigung: entfernt ungueltige Zeichen,
     /// ersetzt Leerzeichen und stellt die .pdf-Endung sicher.
-    public static func defaultFileName(for title: String) -> String {
+    public nonisolated static func defaultFileName(for title: String) -> String {
         let invalid = CharacterSet(charactersIn: "/\\?%*|\"<>:")
         var cleaned = title
             .components(separatedBy: invalid)
