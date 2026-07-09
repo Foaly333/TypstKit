@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import TypstAssetKit
 
 // MARK: - Konfiguration
 
@@ -111,19 +112,15 @@ public actor TypstImageResolver {
 
     // MARK: - Bildpfade extrahieren
 
-    /// Regex-Pattern für image("...") Aufrufe (einfache und doppelte Anführungszeichen).
-    nonisolated(unsafe) private static let imagePattern = #/image\(\s*["']([^"']+)["']\s*(?:,|\))/#
-
+    /// Erkennt Pfade sowohl direkt in `image("…")` als auch über eine
+    /// `#let`-Zuweisung. Letzteres ist die Form, die `TypstDocumentImporter`
+    /// erzeugt — ohne sie bekäme der Compiler für importierte Dokumente
+    /// kein `ImageFile` und meldete „file not found“.
+    ///
+    /// Die Extraktion liegt in `TypstAssetKit`, weil sie reine
+    /// Textverarbeitung ist und dort ohne die Rust-Binary getestet werden kann.
     private static func extractImageRefs(from source: String) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for match in source.matches(of: imagePattern) {
-            let path = String(match.output.1)
-            if seen.insert(path).inserted {
-                result.append(path)
-            }
-        }
-        return result
+        TypstImageReferenceScanner.references(in: source)
     }
 
     // MARK: - Einzelne Referenz verarbeiten

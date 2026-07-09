@@ -9,7 +9,8 @@ Kein Server-Roundtrip, kein WebView: Typst-Quelltext wird direkt auf dem Gerät 
 - **Native Kompilierung** zu PDF und/oder SVG über eine in Rust geschriebene, per UniFFI angebundene Typst-Engine
 - **Fertige Editor-UI** mit Split-View, Syntax-Highlighting und Live-Vorschau
 - **Automatische Package-Auflösung**: `#import`-Direktiven werden erkannt, aus der offiziellen Typst-Registry geladen und lokal gecacht (inklusive transitiver Abhängigkeiten)
-- **Bildauflösung** für lokale Dateien, iCloud-Container und Web-URLs, direkt aus dem Quelltext heraus
+- **Bildauflösung** für lokale Dateien, iCloud-Container und Web-URLs, direkt aus dem Quelltext heraus — Pfade werden sowohl direkt in `image("…")` erkannt als auch über eine `#let`-Zuweisung, wie sie `TypstDocumentImporter` erzeugt
+- **Base64-Bilder auslagern**: `TypstAssetKit` ersetzt eingebettete Base64-Blöcke streamend durch Referenzen auf einen inhaltsadressierten Bild-Store und bettet sie beim Export wieder ein (siehe [ASSET-MIGRATION.md](ASSET-MIGRATION.md))
 - **Eingebettete Standardschriften** (Libertinus Serif, New Computer Modern/NCM Math, DejaVu Sans Mono) — Math-Modus und SVG-Export funktionieren ohne jede Font-Konfiguration
 - **Dependency Injection** an allen relevanten Stellen, damit sich das Paket ohne Änderungen am Kern in unterschiedliche Apps einbetten lässt
 
@@ -17,6 +18,7 @@ Kein Server-Roundtrip, kein WebView: Typst-Quelltext wird direkt auf dem Gerät 
 
 | Produkt | Inhalt | Plattformen |
 |---|---|---|
+| `TypstAssetKit` | `TypstAssetStore`, `TypstDocumentImporter`, `TypstDocumentExporter`, `TypstImageReferenceScanner` — ohne Abhängigkeit auf die Rust-Binary | iOS + macOS |
 | `TypstCompilerKit` | FFI-Bindings, `NativeTypstCompiler`, `TypstPackageManager` (Registry-Downloads), `TypstImageResolver`, `NativeTypstController` | iOS + macOS |
 | `TypstEditorKit` | `TypstEditor`, `NativeTypstEditorView` (Split-View mit Vorschau), `NativeTypstRenderView`, `NativeTypstPDFPreview` | iOS + macOS |
 
