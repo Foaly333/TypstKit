@@ -3,6 +3,7 @@
 //  TypstKit — Nativer Typst-Compiler + Editor fuer iOS und macOS.
 //
 //  Produkte:
+//  - TypstAssetKit:    Content-addressed Bild-Store, Import (Base64 -> Datei), Export (Datei -> Base64)
 //  - TypstCompilerKit: FFI-Bindings, Compiler, Package-Manager, Bild-Aufloesung, Controller
 //  - TypstEditorKit:   Editor-UI, PDF-Vorschau, Split-View (haengt von TypstCompilerKit ab)
 //
@@ -26,10 +27,25 @@ let package = Package(
         .macOS(.v26),
     ],
     products: [
+        .library(name: "TypstAssetKit", targets: ["TypstAssetKit"]),
         .library(name: "TypstCompilerKit", targets: ["TypstCompilerKit"]),
         .library(name: "TypstEditorKit", targets: ["TypstEditorKit"]),
     ],
     targets: [
+        // Asset-Schicht: content-addressed Bild-Store, Dokument-Import/-Export.
+        // Bewusst OHNE Abhaengigkeit auf die Rust-Binary — dadurch laeuft
+        // `swift test` fuer diese Schicht ohne gebautes XCFramework.
+        // Ebenfalls ohne MainActor-Default-Isolation: alles hier ist
+        // nonisolated, wertbasiert und dateisystemgebunden.
+        .target(
+            name: "TypstAssetKit",
+            path: "Sources/TypstAssetKit",
+            swiftSettings: [
+                .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
+                .enableUpcomingFeature("InferIsolatedConformances"),
+            ]
+        ),
+
         // Vorkompilierte Rust-Binary (dynamisches Framework).
         // Enthaelt Slices fuer ios-arm64, ios-arm64-simulator und macos.
         .binaryTarget(
@@ -65,7 +81,7 @@ let package = Package(
         // @Observable-Controller mit Debouncing.
         .target(
             name: "TypstCompilerKit",
-            dependencies: ["TypstNativeBindings"],
+            dependencies: ["TypstNativeBindings", "TypstAssetKit"],
             path: "Sources/TypstCompilerKit",
             swiftSettings: appIsolationSettings
         ),
@@ -76,6 +92,13 @@ let package = Package(
             dependencies: ["TypstCompilerKit"],
             path: "Sources/TypstEditorKit",
             swiftSettings: appIsolationSettings
+        ),
+
+        // Tests fuer die Asset-Schicht (Swift Testing).
+        .testTarget(
+            name: "TypstAssetKitTests",
+            dependencies: ["TypstAssetKit"],
+            path: "Tests/TypstAssetKitTests"
         ),
     ]
 )

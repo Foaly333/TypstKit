@@ -7,3 +7,6 @@
 //
 
 @_exported import TypstNativeBindings
+
+// Asset-Store, Dokument-Import und -Export.
+@_exported import TypstAssetKit
