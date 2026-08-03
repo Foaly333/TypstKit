@@ -9,6 +9,16 @@
 //
 //  Resultat: modifizierter Quelltext + Liste von ImageFile für den Compiler.
 //
+//  Zwei Grundregeln, beide teuer erkauft:
+//
+//  1. Umgeschrieben wird ausschließlich das Quelltext-Literal, aus dem ein
+//     Kandidat stammt — über seine Range, nie über Stringgleichheit. Ein
+//     globales Ersetzen kennt den Unterschied zwischen Code und Fließtext nicht
+//     und zerstört Links, die dieselbe Zeichenfolge enthalten.
+//  2. Eine Web-Ressource wird nur übernommen, wenn die Antwort tatsächlich ein
+//     Bild ist. Alles andere wird still verworfen: `#let url = "https://…"` ist
+//     ein legitimes Literal und darf keine Diagnostik erzeugen.
+//
 
 import Foundation
 import TypstAssetKit
@@ -28,14 +38,22 @@ public nonisolated struct TypstImageResolverConfiguration: Sendable {
     /// Name des Cache-Verzeichnisses unter Application Support.
     public var cacheDirectoryName: String
 
+    /// Lader fuer Web-Ressourcen. Injizierbar, damit die Aufloesung ohne Netz
+    /// testbar ist; im Betrieb `URLSession.shared`.
+    public var loadWebResource: @Sendable (URL) async throws -> (Data, URLResponse)
+
     public init(
         ubiquityContainerIdentifier: String? = nil,
         localImagePrefix: String = "img/",
-        cacheDirectoryName: String = "TypstImageCache"
+        cacheDirectoryName: String = "TypstImageCache",
+        loadWebResource: @escaping @Sendable (URL) async throws -> (Data, URLResponse) = {
+            try await URLSession.shared.data(from: $0)
+        }
     ) {
         self.ubiquityContainerIdentifier = ubiquityContainerIdentifier
         self.localImagePrefix = localImagePrefix
         self.cacheDirectoryName = cacheDirectoryName
+        self.loadWebResource = loadWebResource
     }
 }
 
@@ -69,31 +87,48 @@ public actor TypstImageResolver {
         source: String,
         configuration: TypstImageResolverConfiguration = TypstImageResolverConfiguration()
     ) async -> TypstImageResolutionResult {
-        let refs = extractImageRefs(from: source)
-        guard !refs.isEmpty else {
+        // Fundstellen mit Range — derselbe Pfad kann mehrfach vorkommen
+        // (`#let x = "…"` und `image("…")`); geladen wird er trotzdem nur einmal.
+        let references = TypstImageReferenceScanner.scan(source)
+        guard !references.isEmpty else {
             return TypstImageResolutionResult(resolvedSource: source, imageFiles: [])
         }
 
-        var rewrittenSource = source
+        var uniquePaths: [String] = []
+        var seenPaths = Set<String>()
+        for reference in references {
+            if seenPaths.insert(reference.path).inserted {
+                uniquePaths.append(reference.path)
+            }
+        }
+
+        var replacementByPath: [String: String] = [:]
         var imageFiles: [ImageFile] = []
 
-        await withTaskGroup(of: (original: String, replacement: String?, imageFile: ImageFile?)?.self) { group in
-            for ref in refs {
+        await withTaskGroup(of: (path: String, replacement: String?, imageFile: ImageFile?)?.self) { group in
+            for path in uniquePaths {
                 group.addTask {
-                    await Self.processRef(ref, configuration: configuration)
+                    await Self.processRef(path, configuration: configuration)
                 }
             }
 
             for await result in group {
-                guard let (original, replacement, imageFile) = result else { continue }
+                guard let (path, replacement, imageFile) = result else { continue }
                 if let imageFile { imageFiles.append(imageFile) }
-                if let replacement {
-                    rewrittenSource = rewrittenSource.replacingOccurrences(of: original, with: replacement)
-                }
+                if let replacement { replacementByPath[path] = replacement }
             }
         }
 
-        return TypstImageResolutionResult(resolvedSource: rewrittenSource, imageFiles: imageFiles)
+        // Nur die gescannten Literale ersetzen — nichts sonst im Dokument.
+        let replacements = references.compactMap { reference -> TypstSourceReplacement? in
+            guard let text = replacementByPath[reference.path] else { return nil }
+            return TypstSourceReplacement(range: reference.range, text: text)
+        }
+
+        return TypstImageResolutionResult(
+            resolvedSource: TypstSourceRewriter.apply(replacements, to: source),
+            imageFiles: imageFiles
+        )
     }
 
     // MARK: - Verzeichnisse
@@ -110,29 +145,16 @@ public actor TypstImageResolver {
             .appendingPathComponent(configuration.cacheDirectoryName)
     }
 
-    // MARK: - Bildpfade extrahieren
-
-    /// Erkennt Pfade sowohl direkt in `image("…")` als auch über eine
-    /// `#let`-Zuweisung. Letzteres ist die Form, die `TypstDocumentImporter`
-    /// erzeugt — ohne sie bekäme der Compiler für importierte Dokumente
-    /// kein `ImageFile` und meldete „file not found“.
-    ///
-    /// Die Extraktion liegt in `TypstAssetKit`, weil sie reine
-    /// Textverarbeitung ist und dort ohne die Rust-Binary getestet werden kann.
-    private static func extractImageRefs(from source: String) -> [String] {
-        TypstImageReferenceScanner.references(in: source)
-    }
-
     // MARK: - Einzelne Referenz verarbeiten
 
-    /// Verarbeitet einen einzelnen Bildpfad.
-    /// - Returns: Tuple aus (originalPath, replacementPath?, imageFile?)
+    /// Verarbeitet einen einzelnen Bildpfad-Kandidaten.
+    /// - Returns: Tuple aus (path, replacementPath?, imageFile?)
     private static func processRef(
         _ ref: String,
         configuration: TypstImageResolverConfiguration
     ) async -> (String, String?, ImageFile?)? {
         if ref.hasPrefix("http://") || ref.hasPrefix("https://") {
-            return await processWebRef(ref)
+            return await processWebRef(ref, configuration: configuration)
         } else if ref.hasPrefix(configuration.localImagePrefix) {
             return processLocalRef(ref, configuration: configuration)
         }
@@ -142,30 +164,43 @@ public actor TypstImageResolver {
 
     // MARK: - Web-Bilder
 
-    /// Lädt ein Web-Bild asynchron und ersetzt den URL-Pfad durch einen virtuellen Pfad.
+    /// Lädt eine Web-Ressource und ersetzt die URL durch einen virtuellen Pfad —
+    /// aber nur, wenn die Antwort tatsächlich ein Bild ist.
     /// Aus `image("https://example.com/foto.png")` wird `image("__web__/foto.png")`.
-    private static func processWebRef(_ urlString: String) async -> (String, String?, ImageFile?)? {
+    ///
+    /// Jeder andere Ausgang (Netzfehler, Status ≠ 2xx, HTML-Seite, Host ohne
+    /// Pfad) liefert `nil`, und zwar **ohne Ausgabe**: Kandidaten sind
+    /// spekulativ, ein nicht aufgelöster Kandidat ist der Normalfall und kein
+    /// Fehler.
+    private static func processWebRef(
+        _ urlString: String,
+        configuration: TypstImageResolverConfiguration
+    ) async -> (String, String?, ImageFile?)? {
         guard let url = URL(string: urlString) else { return nil }
 
-        // Virtuellen Pfad aus dem letzten URL-Pfadbestandteil ableiten
-        let filename = url.lastPathComponent.isEmpty ? "image_\(abs(urlString.hashValue)).bin" : url.lastPathComponent
-        let virtualPath = "__web__/\(filename)"
+        // Kandidaten ohne Pfadanteil (bloßer Host) gar nicht erst laden —
+        // sie können kein Bild sein und der Abruf wäre reine Nebenwirkung.
+        guard TypstWebImageResponse.hasPath(url) else { return nil }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await configuration.loadWebResource(url)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode),
                   !data.isEmpty else {
-                print("[TypstImageResolver] Fehler beim Laden von \(urlString): Ungültige Antwort")
                 return nil
             }
-            let imageFile = ImageFile(path: virtualPath, content: data)
-            // Quelltext umschreiben: URL → virtueller Pfad
-            let original = urlString
-            let replacement = virtualPath
-            return (original, replacement, imageFile)
+
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
+            guard let virtualPath = TypstWebImageResponse.imagePath(
+                forURL: urlString,
+                contentType: contentType,
+                data: data
+            ) else {
+                return nil
+            }
+
+            return (urlString, virtualPath, ImageFile(path: virtualPath, content: data))
         } catch {
-            print("[TypstImageResolver] Fehler beim Laden von \(urlString): \(error)")
             return nil
         }
     }

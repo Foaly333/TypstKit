@@ -113,4 +113,72 @@ struct TypstImageReferenceScannerTests {
         let refs = TypstImageReferenceScanner.references(in: #"#let titel = "Kapitel 1""#)
         #expect(refs == ["Kapitel 1"])
     }
+
+    // MARK: Wortgrenze vor `image(`
+
+    @Test("Funktionen, deren Name auf image endet, matchen nicht")
+    func ignoresSuffixedFunctionNames() {
+        #expect(TypstImageReferenceScanner.references(in: #"#qrimage("https://x/y")"#).isEmpty)
+        #expect(TypstImageReferenceScanner.references(in: #"#myimage("img/a.png")"#).isEmpty)
+    }
+
+    @Test("Methodenaufruf auf einem Objekt matcht nicht")
+    func ignoresMethodCall() {
+        #expect(TypstImageReferenceScanner.references(in: #"#foo.image("img/a.png")"#).isEmpty)
+    }
+
+    @Test("image am Zeilenanfang matcht")
+    func findsCallAtLineStart() {
+        let source = """
+        #{
+        image("img/a.png")
+        }
+        """
+        #expect(TypstImageReferenceScanner.references(in: source) == ["img/a.png"])
+    }
+
+    // MARK: Fundstellen mit Range
+
+    @Test("scan liefert die Range des Literals ohne Anfuehrungszeichen")
+    func scanReportsLiteralRange() {
+        let source = #"#image("\#(path)", width: 3cm)"#
+        let refs = TypstImageReferenceScanner.scan(source)
+        #expect(refs.count == 1)
+        #expect(refs.first?.path == path)
+        #expect(refs.first.map { String(source[$0.range]) } == path)
+    }
+
+    @Test("Derselbe Pfad in #let und image ergibt zwei Fundstellen")
+    func scanKeepsEveryOccurrence() {
+        let source = """
+        #let code = "\(path)"
+        #image("\(path)")
+        """
+        let refs = TypstImageReferenceScanner.scan(source)
+        #expect(refs.count == 2)
+        #expect(refs.allSatisfy { $0.path == path })
+        #expect(refs.allSatisfy { String(source[$0.range]) == path })
+        // aufsteigend nach Position sortiert
+        #expect(refs[0].range.lowerBound < refs[1].range.lowerBound)
+    }
+
+    @Test("Ein Host im #let ist ein Kandidat, der Link im Fliesstext nicht")
+    func scanIgnoresProseLinks() {
+        // Der Auslöser des Fehlers: der Host steht als Literal im Template,
+        // im Fliesstext stehen nackte Links, die damit anfangen.
+        let source = """
+        #let host = "https://inf-schule.de"
+
+        Quelle: https://inf-schule.de/awbs (16.4.1.1)
+        """
+        let refs = TypstImageReferenceScanner.scan(source)
+        #expect(refs.count == 1)
+        #expect(refs.first?.path == "https://inf-schule.de")
+        #expect(refs.first.map { String(source[$0.range]) } == "https://inf-schule.de")
+    }
+
+    @Test("Dokument ohne Bilder liefert keine Fundstellen")
+    func scanFindsNothingWithoutImages() {
+        #expect(TypstImageReferenceScanner.scan("= Titel\nNur Text.").isEmpty)
+    }
 }

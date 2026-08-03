@@ -104,6 +104,15 @@ Snippet- und Bildimport-Einfügungen laufen über das `text`-Binding: externe Ä
 
 Eigene Datenmodelle binden sich über `TypstProvidingProtocol` an den Compiler an — eine Konformanz reicht, um beliebige App-Objekte kompilierbar zu machen.
 
+## Bildauflösung
+
+`TypstImageResolver` sucht Bildpfade in zwei Formen — direkt in `image("…")` und über eine `#let`-Zuweisung, wie sie `TypstDocumentImporter` erzeugt. Der Scanner sammelt dabei bewusst großzügig **Kandidaten**, nicht gesicherte Bildpfade: er kennt den Typst-Wertebereich nicht, und ein `#let titel = "Kapitel 1"` wird ebenso gemeldet wie ein Pfad. Die Strenge liegt beim Verbraucher, und zwar in zwei Punkten:
+
+- **Eine Web-URL wird nur übernommen, wenn die Antwort tatsächlich ein Bild ist.** Geprüft werden `Content-Type` und Magic Bytes; eine HTML-Seite mit Status 200 ist kein Bild, eine URL ohne Pfadanteil (bloßer Host) wird gar nicht erst geladen. Alles, was durchfällt, wird **still** verworfen — ein `#let url = "https://example.com"` ist ein legitimes Literal und erzeugt keine Diagnostik.
+- **Umgeschrieben wird ausschließlich das Quelltext-Literal, aus dem ein Kandidat stammt** — über seine Range, nie über Stringgleichheit. Links im Fließtext bleiben unangetastet, auch wenn sie dieselbe Zeichenfolge enthalten wie ein Literal im Code.
+
+Geladene Web-Bilder landen unter `__web__/<datei>` im virtuellen Dateisystem des Compilers; lokale `img/…`-Pfade bleiben unverändert stehen und werden aus dem iCloud-Container bzw. dem lokalen Cache bedient. Der Lader ist über `TypstImageResolverConfiguration.loadWebResource` injizierbar (Standard: `URLSession.shared`).
+
 ## Eingebettete Schriften (Math-Modus & SVG)
 
 Die Rust-Binary bettet die Typst-Standardschriften ein (Cargo-Feature `embed-fonts`, standardmäßig aktiv): **Libertinus Serif** (Text), **New Computer Modern / NCM Math** (Math-Modus), **DejaVu Sans Mono** (Code). Damit funktionieren Math-Modus und SVG-Export ohne jede Font-Konfiguration.

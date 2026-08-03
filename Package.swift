@@ -100,5 +100,14 @@ let package = Package(
             dependencies: ["TypstAssetKit"],
             path: "Tests/TypstAssetKitTests"
         ),
+
+        // Tests fuer die Compiler-Schicht. Deckt die Bild-Aufloesung ab
+        // (injizierter Lader, kein Netz); braucht das gebaute XCFramework,
+        // weil TypstCompilerKit gegen die Rust-Binary linkt.
+        .testTarget(
+            name: "TypstCompilerKitTests",
+            dependencies: ["TypstCompilerKit"],
+            path: "Tests/TypstCompilerKitTests"
+        ),
     ]
 )
