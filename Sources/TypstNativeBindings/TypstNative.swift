@@ -473,6 +473,91 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Ergebnis einer Kompilierung mit Flag-Kontrakt:
+ * PDF-Bytes plus die vom Dokument gemeldeten Output-Flags als JSON-Array
+ * (Flag-Kontrakt v1, siehe `ausgaben.rs`).
+ */
+public struct CompileResult {
+    /**
+     * Das kompilierte PDF
+     */
+    public var pdf: Data
+    /**
+     * JSON-Array der `<mo-element>`-Meldungen:
+     * `[{"typ": …, "daten": …, "seite": 0, "x_pt": …, "y_pt": …}]`
+     */
+    public var ausgabenJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Das kompilierte PDF
+         */pdf: Data, 
+        /**
+         * JSON-Array der `<mo-element>`-Meldungen:
+         * `[{"typ": …, "daten": …, "seite": 0, "x_pt": …, "y_pt": …}]`
+         */ausgabenJson: String) {
+        self.pdf = pdf
+        self.ausgabenJson = ausgabenJson
+    }
+}
+
+
+
+extension CompileResult: Equatable, Hashable {
+    public static func ==(lhs: CompileResult, rhs: CompileResult) -> Bool {
+        if lhs.pdf != rhs.pdf {
+            return false
+        }
+        if lhs.ausgabenJson != rhs.ausgabenJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(pdf)
+        hasher.combine(ausgabenJson)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCompileResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CompileResult {
+        return
+            try CompileResult(
+                pdf: FfiConverterData.read(from: &buf), 
+                ausgabenJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CompileResult, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.pdf, into: &buf)
+        FfiConverterString.write(value.ausgabenJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCompileResult_lift(_ buf: RustBuffer) throws -> CompileResult {
+    return try FfiConverterTypeCompileResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCompileResult_lower(_ value: CompileResult) -> RustBuffer {
+    return FfiConverterTypeCompileResult.lower(value)
+}
+
+
+/**
  * Virtuelle Bilddatei fuer Typst (aus dem Web oder lokal), uebergeben von Swift via FFI.
  * Der Pfad muss genau dem im Typst-Quelltext verwendeten Pfad entsprechen
  * (z.B. "img/foto.png" oder "__web__/foto.png").
@@ -989,6 +1074,32 @@ fileprivate struct FfiConverterSequenceTypeSourceDiagnostic: FfiConverterRustBuf
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: String] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: String]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
+    }
+}
 /**
  * Kompiliert Typst-Quelltext zu PDF-Bytes.
  *
@@ -1008,6 +1119,31 @@ public func compileToPdf(source: String, fontData: [Data], packageFiles: [Packag
         FfiConverterSequenceData.lower(fontData),
         FfiConverterSequenceTypePackageFile.lower(packageFiles),
         FfiConverterSequenceTypeImageFile.lower(imageFiles),$0
+    )
+})
+}
+/**
+ * Kompiliert Typst-Quelltext zu PDF-Bytes — mit Input-Flags (`sys.inputs`)
+ * und Extraktion der Output-Flags im selben Kompilierlauf.
+ *
+ * # Parameter
+ * - `source`: Vollstaendiger Typst-Quelltext
+ * - `font_data`: Liste von Font-Dateien als Byte-Arrays (TTF/OTF/TTC)
+ * - `package_files`: Liste von Package-Dateien (bereits entpackt)
+ * - `image_files`: Virtuelle Bilddateien (Web-Downloads + lokale img/-Dateien)
+ * - `inputs`: Input-Flags, im Dokument via `sys.inputs` sichtbar
+ *
+ * # Rueckgabe
+ * `CompileResult` (PDF + Output-Flags-JSON) bei Erfolg.
+ */
+public func compileToPdfWithFlags(source: String, fontData: [Data], packageFiles: [PackageFile], imageFiles: [ImageFile], inputs: [String: String])throws  -> CompileResult {
+    return try  FfiConverterTypeCompileResult.lift(try rustCallWithError(FfiConverterTypeTypstCompilationError.lift) {
+    uniffi_typst_native_fn_func_compile_to_pdf_with_flags(
+        FfiConverterString.lower(source),
+        FfiConverterSequenceData.lower(fontData),
+        FfiConverterSequenceTypePackageFile.lower(packageFiles),
+        FfiConverterSequenceTypeImageFile.lower(imageFiles),
+        FfiConverterDictionaryStringString.lower(inputs),$0
     )
 })
 }
@@ -1050,6 +1186,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_typst_native_checksum_func_compile_to_pdf() != 60697) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_typst_native_checksum_func_compile_to_pdf_with_flags() != 18648) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_typst_native_checksum_func_compile_to_svg() != 52027) {

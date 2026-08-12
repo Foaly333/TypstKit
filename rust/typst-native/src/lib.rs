@@ -5,11 +5,15 @@
 //! um Sandbox-Probleme auf iOS zu vermeiden.
 //! Packages werden als PackageFile-Listen uebergeben.
 
+mod ausgaben;
 mod diagnostics;
 mod fonts;
 mod world;
 
+use std::collections::HashMap;
+
 use diagnostics::TypstCompilationError;
+use typst::foundations::{Dict, Value};
 use typst::layout::PagedDocument;
 use world::{ImageFile, PackageFile, TypstWorld};
 
@@ -91,6 +95,75 @@ fn compile_to_svg(
     }
 }
 
+/// Ergebnis einer Kompilierung mit Flag-Kontrakt:
+/// PDF-Bytes plus die vom Dokument gemeldeten Output-Flags als JSON-Array
+/// (Flag-Kontrakt v1, siehe `ausgaben.rs`).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CompileResult {
+    /// Das kompilierte PDF
+    pub pdf: Vec<u8>,
+    /// JSON-Array der `<mo-element>`-Meldungen:
+    /// `[{"typ": …, "daten": …, "seite": 0, "x_pt": …, "y_pt": …}]`
+    pub ausgaben_json: String,
+}
+
+/// Kompiliert Typst-Quelltext zu PDF-Bytes — mit Input-Flags (`sys.inputs`)
+/// und Extraktion der Output-Flags im selben Kompilierlauf.
+///
+/// # Parameter
+/// - `source`: Vollstaendiger Typst-Quelltext
+/// - `font_data`: Liste von Font-Dateien als Byte-Arrays (TTF/OTF/TTC)
+/// - `package_files`: Liste von Package-Dateien (bereits entpackt)
+/// - `image_files`: Virtuelle Bilddateien (Web-Downloads + lokale img/-Dateien)
+/// - `inputs`: Input-Flags, im Dokument via `sys.inputs` sichtbar
+///
+/// # Rueckgabe
+/// `CompileResult` (PDF + Output-Flags-JSON) bei Erfolg.
+#[uniffi::export]
+fn compile_to_pdf_with_flags(
+    source: String,
+    font_data: Vec<Vec<u8>>,
+    package_files: Vec<PackageFile>,
+    image_files: Vec<ImageFile>,
+    inputs: HashMap<String, String>,
+) -> Result<CompileResult, TypstCompilationError> {
+    // String-Paare → Typst-Dict fuer sys.inputs
+    let dict: Dict = inputs
+        .into_iter()
+        .map(|(k, v)| (k.into(), Value::Str(v.into())))
+        .collect();
+
+    let world =
+        TypstWorld::new_mit_inputs(source, font_data, package_files, image_files, Some(dict));
+
+    let warned = typst::compile::<PagedDocument>(&world);
+
+    match warned.output {
+        Ok(document) => {
+            // Output-Flags im selben Lauf extrahieren (kein zweites Kompilieren).
+            let ausgaben_json = ausgaben::extrahiere_ausgaben(&document);
+
+            let options = typst_pdf::PdfOptions::default();
+            match typst_pdf::pdf(&document, &options) {
+                Ok(pdf_bytes) => Ok(CompileResult {
+                    pdf: pdf_bytes,
+                    ausgaben_json,
+                }),
+                Err(export_errors) => {
+                    let messages: Vec<String> = export_errors
+                        .iter()
+                        .map(|e| format!("{:?}", e))
+                        .collect();
+                    Err(TypstCompilationError::new_export_error(messages))
+                }
+            }
+        }
+        Err(diagnostics) => Err(TypstCompilationError::from_source_diagnostics(
+            &world, diagnostics,
+        )),
+    }
+}
+
 uniffi::setup_scaffolding!();
 
 #[cfg(test)]
@@ -100,14 +173,14 @@ mod tests {
     #[test]
     fn test_compile_simple_text() {
         let source = "Hello World".to_string();
-        let result = compile_to_pdf(source, vec![], vec![]);
+        let result = compile_to_pdf(source, vec![], vec![], vec![]);
         assert!(result.is_ok() || result.is_err());
     }
 
     #[test]
     fn test_compile_invalid_source() {
         let source = "#nonexistent_function()".to_string();
-        let result = compile_to_pdf(source, vec![], vec![]);
+        let result = compile_to_pdf(source, vec![], vec![], vec![]);
         if let Err(err) = result {
             assert!(!err.diagnostics().is_empty() || !err.summary().is_empty());
         }
@@ -116,12 +189,48 @@ mod tests {
     #[test]
     fn test_compile_svg_returns_pages() {
         let source = "= Ueberschrift\nText".to_string();
-        let result = compile_to_svg(source, vec![], vec![]);
+        let result = compile_to_svg(source, vec![], vec![], vec![]);
         if let Ok(svgs) = result {
             assert!(!svgs.is_empty());
             for svg in &svgs {
                 assert!(svg.contains("<svg"));
             }
         }
+    }
+
+    #[test]
+    fn test_compile_with_flags_inputs_und_extraktion() {
+        // Input-Flag erreicht sys.inputs; Meldung wird extrahiert.
+        let source = concat!(
+            "Wert: #sys.inputs.at(\"x\", default: \"leer\")\n",
+            "#metadata((typ: \"ping\", daten: (n: 7)))<mo-element>",
+        )
+        .to_string();
+
+        let mut inputs = HashMap::new();
+        inputs.insert("x".to_string(), "hallo".to_string());
+
+        let result = compile_to_pdf_with_flags(source, vec![], vec![], vec![], inputs)
+            .expect("Kompilierung mit Flags muss gelingen");
+
+        assert!(!result.pdf.is_empty());
+        let json: serde_json::Value =
+            serde_json::from_str(&result.ausgaben_json).expect("Ausgaben muessen JSON sein");
+        let arr = json.as_array().expect("JSON-Array erwartet");
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["typ"], "ping");
+        assert_eq!(arr[0]["daten"]["n"], 7);
+        assert_eq!(arr[0]["seite"], 0);
+        assert!(arr[0]["x_pt"].is_number() && arr[0]["y_pt"].is_number());
+    }
+
+    #[test]
+    fn test_compile_with_flags_ohne_inputs() {
+        // Leere Inputs entsprechen dem Verhalten der alten Funktionen.
+        let source = "Nur Text".to_string();
+        let result = compile_to_pdf_with_flags(source, vec![], vec![], vec![], HashMap::new())
+            .expect("Kompilierung ohne Inputs muss gelingen");
+        assert!(!result.pdf.is_empty());
+        assert_eq!(result.ausgaben_json, "[]");
     }
 }

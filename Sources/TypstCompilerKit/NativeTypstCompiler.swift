@@ -17,8 +17,8 @@ import Foundation
 /// Laedt Schriftarten aus einem Bundle und ruft die Rust-kompilierten
 /// Typst-Funktionen auf. Laeuft auf iOS und macOS.
 public final class NativeTypstCompiler: NativeTypstCompilerProtocol, Sendable {
-    /// Vorgeladene Font-Daten
-    private let fontData: [Data]
+    /// Vorgeladene Font-Daten (internal: auch von FlagKontrakt.swift genutzt)
+    let fontData: [Data]
 
     /// Erstellt einen neuen Compiler mit Fonts aus dem angegebenen Bundle-Verzeichnis.
     /// - Parameters:
@@ -108,7 +108,7 @@ public final class NativeTypstCompiler: NativeTypstCompilerProtocol, Sendable {
 
     /// Fuehrt eine blockierende Kompilierung auf der Compile-Queue aus,
     /// ohne den aufrufenden (hoeher priorisierten) Thread zu blockieren.
-    private nonisolated static func runOnCompileQueue<T: Sendable>(
+    nonisolated static func runOnCompileQueue<T: Sendable>(
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
@@ -145,7 +145,7 @@ public final class NativeTypstCompiler: NativeTypstCompilerProtocol, Sendable {
 
 // MARK: - Mapping von UniFFI-Typen auf Kit-Typen
 
-private extension TypstCompilationError {
+extension TypstCompilationError {
     /// Konvertiert den UniFFI-Fehlertyp in den oeffentlichen Kit-Fehlertyp.
     nonisolated func toNativeError() -> NativeTypstCompilationError {
         switch self {

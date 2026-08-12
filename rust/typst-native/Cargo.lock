@@ -2547,6 +2547,7 @@ name = "typst-native"
 version = "0.1.0"
 dependencies = [
  "ecow",
+ "serde_json",
  "time",
  "typst",
  "typst-assets",

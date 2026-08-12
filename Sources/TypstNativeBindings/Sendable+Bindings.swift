@@ -15,3 +15,4 @@ extension ImageFile: Sendable {}
 extension PackageFile: Sendable {}
 extension SourceDiagnostic: Sendable {}
 extension TypstCompilationError: Sendable {}
+extension CompileResult: Sendable {}

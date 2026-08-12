@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use typst::diag::{FileError, FileResult};
-use typst::foundations::Bytes;
+use typst::foundations::{Bytes, Dict};
 use typst::syntax::package::{PackageSpec, PackageVersion};
 use typst::syntax::{FileId, Source, VirtualPath};
 use typst::text::{Font, FontBook};
@@ -63,6 +63,20 @@ impl TypstWorld {
     /// - `font_data`: Font-Dateien als rohe Bytes (TTF/OTF/TTC)
     /// - `packages`: Package-Dateien von Swift, bereits entpackt
     pub fn new(source_text: String, font_data: Vec<Vec<u8>>, packages: Vec<PackageFile>, images: Vec<ImageFile>) -> Self {
+        Self::new_mit_inputs(source_text, font_data, packages, images, None)
+    }
+
+    /// Erstellt eine World-Instanz mit optionalen Input-Flags (`sys.inputs`).
+    ///
+    /// Die bestehenden Compile-Funktionen rufen `new` auf (Library ohne Inputs);
+    /// `compile_to_pdf_with_flags` uebergibt hier das Inputs-Dictionary.
+    pub fn new_mit_inputs(
+        source_text: String,
+        font_data: Vec<Vec<u8>>,
+        packages: Vec<PackageFile>,
+        images: Vec<ImageFile>,
+        inputs: Option<Dict>,
+    ) -> Self {
         let mut book = FontBook::new();
         let mut all_fonts = Vec::new();
 
@@ -142,8 +156,15 @@ impl TypstWorld {
             .map(|img| (img.path, Bytes::new(img.content)))
             .collect();
 
+        // Library mit oder ohne sys.inputs bauen — gemeinsamer Konstruktionspfad
+        // fuer alte (ohne Inputs) und neue (mit Inputs) Compile-Funktionen.
+        let library = match inputs {
+            Some(dict) => Library::builder().with_inputs(dict).build(),
+            None => Library::default(),
+        };
+
         Self {
-            library: LazyHash::new(Library::default()),
+            library: LazyHash::new(library),
             book: LazyHash::new(book),
             source,
             fonts: all_fonts,

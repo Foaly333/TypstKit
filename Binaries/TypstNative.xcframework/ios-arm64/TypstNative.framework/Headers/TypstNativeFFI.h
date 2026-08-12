@@ -256,6 +256,11 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
 RustBuffer uniffi_typst_native_fn_func_compile_to_pdf(RustBuffer source, RustBuffer font_data, RustBuffer package_files, RustBuffer image_files, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_FN_FUNC_COMPILE_TO_PDF_WITH_FLAGS
+#define UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_FN_FUNC_COMPILE_TO_PDF_WITH_FLAGS
+RustBuffer uniffi_typst_native_fn_func_compile_to_pdf_with_flags(RustBuffer source, RustBuffer font_data, RustBuffer package_files, RustBuffer image_files, RustBuffer inputs, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_FN_FUNC_COMPILE_TO_SVG
 #define UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_FN_FUNC_COMPILE_TO_SVG
 RustBuffer uniffi_typst_native_fn_func_compile_to_svg(RustBuffer source, RustBuffer font_data, RustBuffer package_files, RustBuffer image_files, RustCallStatus *_Nonnull out_status
@@ -544,6 +549,12 @@ void ffi_typst_native_rust_future_complete_void(uint64_t handle, RustCallStatus 
 #ifndef UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_CHECKSUM_FUNC_COMPILE_TO_PDF
 #define UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_CHECKSUM_FUNC_COMPILE_TO_PDF
 uint16_t uniffi_typst_native_checksum_func_compile_to_pdf(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_CHECKSUM_FUNC_COMPILE_TO_PDF_WITH_FLAGS
+#define UNIFFI_FFIDEF_UNIFFI_TYPST_NATIVE_CHECKSUM_FUNC_COMPILE_TO_PDF_WITH_FLAGS
+uint16_t uniffi_typst_native_checksum_func_compile_to_pdf_with_flags(void
     
 );
 #endif
