@@ -55,9 +55,9 @@ Die App erhält je Meldung ein Objekt:
    Werte werden zu `null` und im Debug-Log vermerkt.
 2. Quiz-Fragen und -Antworten sind Strings, kein Markup (JSON-Payload!).
 3. Bool-Flags akzeptieren `ja`, `true`, `1` (Groß-/Kleinschreibung egal).
-4. `mo-aufdecken` misst mit `measure`: Blockinhalte, die die volle Breite
-   brauchen, liefern ohne Breitenkontext falsche Maße — dann `layout()`
-   verwenden.
+4. `mo-aufdecken` misst per `layout()` in der tatsächlichen Containerbreite
+   (Blockinhalte mit relativer Breite kollabieren in einer unbegrenzten
+   Messung) und ist deshalb block-level — nicht mitten in einen Absatz setzen.
 5. Die App injiziert mo-tools **nicht** automatisch; das Paket wird pro
    Kompilierlauf explizit mitgegeben (`MoToolsPackage.files`) und mit
    `#import "@local/mo-tools:0.1.0": *` eingebunden.

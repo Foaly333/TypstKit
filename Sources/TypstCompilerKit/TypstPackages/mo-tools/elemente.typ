@@ -53,13 +53,20 @@
 
 /// Schrittweises Aufdecken: nativ sichtbar, Fläche wird in der Payload
 /// mitgemeldet (Introspector liefert nur den Ankerpunkt).
-#let mo-aufdecken(inhalt) = context {
-  let s = measure(inhalt)
+///
+/// Gemessen wird per `layout` in der tatsächlichen Containerbreite: ein
+/// nacktes `measure` kollabiert Blockinhalte mit relativer Breite (Boxen,
+/// Tabellen, `width: 100%`) zu 0 Breite — der Text bräche bei Nullbreite um
+/// und die gemeldete Fläche wäre ein schmaler, überhoher Streifen.
+/// Konsequenz: `mo-aufdecken` ist block-level (typischer Anwendungsfall:
+/// ganze Wissensspeicher/Boxen abdecken).
+#let mo-aufdecken(inhalt) = layout(verfuegbar => {
+  let s = measure(box(width: verfuegbar.width, inhalt))
   box[
     #mo-melde("aufdecken", daten: (breite_pt: s.width.pt(), hoehe_pt: s.height.pt()))
     #inhalt
   ]
-}
+})
 
 /// Medien-Sprungmarke: genau eines von url/anhang setzen.
 #let mo-medium(titel: "", url: none, anhang: none) = box[
