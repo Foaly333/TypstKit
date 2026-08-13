@@ -79,6 +79,27 @@ public final class NativeTypstController {
         self.exportFileNamer = exportFileNamer
     }
 
+    // MARK: - Package-Dateien
+
+    /// Haengt die Dateien der App an die aufgeloesten Registry-Dateien an.
+    ///
+    /// Verglichen wird die **vollstaendige Identitaet** (Namespace, Name,
+    /// Version, Pfad), nicht nur der Pfad: `typst.toml` und `lib.typ` gibt es
+    /// in jedem Paket. Eine Deduplizierung allein ueber den Pfad verschluckt
+    /// deshalb genau diese Dateien mitgelieferter Pakete (z. B. mo-tools),
+    /// sobald irgendein Registry-Paket geladen wurde — das Dokument bricht
+    /// dann mit „file not found (searched at typst.toml)“ ab.
+    static func zusammenfuehren(
+        _ aufgeloest: [PackageFile],
+        mit zusaetzlichen: [PackageFile]
+    ) -> [PackageFile] {
+        func schluessel(_ datei: PackageFile) -> String {
+            "\(datei.namespace)/\(datei.name):\(datei.version)/\(datei.path)"
+        }
+        let vorhanden = Set(aufgeloest.map(schluessel))
+        return aufgeloest + zusaetzlichen.filter { !vorhanden.contains(schluessel($0)) }
+    }
+
     // MARK: - Kompilierung
 
     /// Plant eine debounced Kompilierung.
@@ -120,10 +141,9 @@ public final class NativeTypstController {
             // Packages aus dem Quelltext erkennen und laden
             var packageFiles = try await packageManager.resolvePackages(for: fullSource)
 
-            // Zusaetzliche Dateien der App anhaengen (z.B. lokale #import-Dateien)
-            let localFiles = additionalPackageFiles()
-            let existingPaths = Set(packageFiles.map { $0.path })
-            packageFiles += localFiles.filter { !existingPaths.contains($0.path) }
+            // Zusaetzliche Dateien der App anhaengen (z.B. lokale #import-Dateien
+            // und mitgelieferte Pakete wie mo-tools)
+            packageFiles = Self.zusammenfuehren(packageFiles, mit: additionalPackageFiles())
 
             // Bilder auflösen: Web-URLs herunterladen, lokale Bilddateien laden
             let imageResolution = await TypstImageResolver.resolve(

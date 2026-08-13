@@ -39,6 +39,32 @@ struct TypstPackageManagerTests {
         #expect(dateien.isEmpty)
     }
 
+    @Test("Gleichnamige Dateien verschiedener Pakete bleiben erhalten")
+    func zusammenfuehren_behaeltGleichnamigeDateienAndererPakete() {
+        // Jedes Paket bringt typst.toml und lib.typ mit — eine Deduplizierung
+        // ueber den Pfad wuerde mo-tools verschlucken.
+        let ausRegistry = [
+            PackageFile(namespace: "preview", name: "cades", version: "0.3.1", path: "typst.toml", content: Data()),
+            PackageFile(namespace: "preview", name: "cades", version: "0.3.1", path: "lib.typ", content: Data()),
+        ]
+
+        let zusammen = NativeTypstController.zusammenfuehren(ausRegistry, mit: MoToolsPackage.files)
+
+        let moToolsDateien = zusammen.filter { $0.name == MoToolsPackage.name }
+        #expect(moToolsDateien.contains { $0.path == "typst.toml" })
+        #expect(moToolsDateien.contains { $0.path == "lib.typ" })
+        #expect(moToolsDateien.count == MoToolsPackage.files.count)
+    }
+
+    @Test("Identische Dateien werden nicht doppelt angehaengt")
+    func zusammenfuehren_dedupliziertEchteDubletten() {
+        let dateien = MoToolsPackage.files
+
+        let zusammen = NativeTypstController.zusammenfuehren(dateien, mit: dateien)
+
+        #expect(zusammen.count == dateien.count)
+    }
+
     @Test("Quelltext mit mo-tools-Import kompiliert mit mitgeliefertem Paket")
     func kompilieren_mitLokalemPaket() async throws {
         let compiler = NativeTypstCompiler()
