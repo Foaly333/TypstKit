@@ -68,12 +68,26 @@ public final class TypstPackageManager {
         return specs
     }
 
+    /// Namespace des offiziellen Registrys. Nur Pakete aus diesem Namespace
+    /// lassen sich herunterladen.
+    public static let registryNamespace = "preview"
+
+    /// Filtert die Specs auf herunterladbare Registry-Pakete.
+    ///
+    /// Pakete aus anderen Namespaces (`@local/…` und eigene) liegen nicht im
+    /// Registry — sie kommen von der App ueber `additionalPackageFiles` bzw.
+    /// direkt als `packageFiles`. Ohne diesen Filter wuerde der Manager sie
+    /// herunterzuladen versuchen und mit HTTP 404 abbrechen.
+    private static func registrySpecs(_ specs: Set<TypstPackageSpec>) -> Set<TypstPackageSpec> {
+        specs.filter { $0.namespace == registryNamespace }
+    }
+
     /// Laedt alle benoetigten Packages fuer den gegebenen Quelltext,
     /// einschliesslich transitiver Abhaengigkeiten aus Package-Dateien.
     public func resolvePackages(for source: String) async throws -> [PackageFile] {
         var allFiles: [PackageFile] = []
         var resolvedSpecs = Set<TypstPackageSpec>()
-        var pendingSpecs = Self.scanImports(in: source)
+        var pendingSpecs = Self.registrySpecs(Self.scanImports(in: source))
 
         while !pendingSpecs.isEmpty {
             let currentBatch = pendingSpecs
@@ -87,7 +101,7 @@ public final class TypstPackageManager {
                 // Transitive Abhaengigkeiten aus .typ-Dateien scannen
                 for file in files where file.path.hasSuffix(".typ") {
                     if let typContent = String(data: file.content, encoding: .utf8) {
-                        let transitiveDeps = Self.scanImports(in: typContent)
+                        let transitiveDeps = Self.registrySpecs(Self.scanImports(in: typContent))
                         for dep in transitiveDeps where !resolvedSpecs.contains(dep) {
                             pendingSpecs.insert(dep)
                         }
