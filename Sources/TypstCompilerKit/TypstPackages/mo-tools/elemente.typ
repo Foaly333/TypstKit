@@ -17,8 +17,12 @@
 
 /// Quiz: frage/antworten als STRINGS (JSON-Payload!), richtig 1-basiert.
 /// Nativ: Ankreuzliste; im Lösungsmodus ist die richtige Antwort markiert.
+/// Meldet die Lösungs-Fähigkeit implizit mit (wie mo-variante, E12): das Quiz
+/// reagiert auf das Input-Flag "loesung" — ohne die Meldung bekäme ein Blatt,
+/// das nur ein Quiz enthält, keinen Aufgabe/Lösung-Umschalter.
 #let mo-quiz(frage: "", antworten: (), richtig: 1) = block(breakable: false)[
   #mo-melde("quiz", daten: (frage: frage, antworten: antworten, richtig: richtig))
+  #mo-kann("loesung")
   *#frage* \
   #for (i, a) in antworten.enumerate() [
     #box(width: 0.9em, height: 0.9em, stroke: 0.8pt, baseline: 15%)[
