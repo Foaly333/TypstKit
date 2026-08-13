@@ -140,13 +140,14 @@ struct NativeTypstPDFKitView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
-        guard dataCount != context.coordinator.lastDataCount else { return }
+        guard dataCount != context.coordinator.lastDataCount || uiView.document !== document else { return }
         context.coordinator.lastDataCount = dataCount
-        uiView.document = document
+        context.coordinator.setze(document, in: uiView)
     }
 
-    final class Coordinator {
+    final class Coordinator: PDFDokumentSetzer {
         var lastDataCount = 0
+        var laufendeZuweisung: Task<Void, Never>?
     }
 }
 
@@ -170,17 +171,45 @@ struct NativeTypstPDFKitView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
-        guard dataCount != context.coordinator.lastDataCount else { return }
+        guard dataCount != context.coordinator.lastDataCount || nsView.document !== document else { return }
         context.coordinator.lastDataCount = dataCount
-        nsView.document = document
+        context.coordinator.setze(document, in: nsView)
     }
 
-    final class Coordinator {
+    final class Coordinator: PDFDokumentSetzer {
         var lastDataCount = 0
+        var laufendeZuweisung: Task<Void, Never>?
     }
 }
 
 #endif
+
+// MARK: - Dokumentwechsel ausserhalb des SwiftUI-Durchlaufs
+
+/// Setzt ein neues `PDFDocument` **nach** dem laufenden SwiftUI-Update.
+///
+/// `PDFView.setDocument` arbeitet synchron: PDFKit layoutet sofort neu und
+/// meldet die geaenderte Groesse an die umgebende Hierarchie zurueck. Passiert
+/// das direkt in `updateUIView`/`updateNSView`, faellt diese Rueckmeldung mitten
+/// in den Update-Durchlauf von SwiftUI — AttributeGraph erkennt einen Ring und
+/// meldet endlos `cycle detected through attribute`, die App haengt.
+/// Ein Hop auf den MainActor stellt die Zuweisung hinter den Durchlauf.
+@MainActor
+protocol PDFDokumentSetzer: AnyObject {
+    var laufendeZuweisung: Task<Void, Never>? { get set }
+}
+
+extension PDFDokumentSetzer {
+    func setze(_ document: PDFDocument, in pdfView: PDFView) {
+        // Nur die juengste Zuweisung zaehlt: bei schneller Folge von
+        // Kompilierlaeufen wuerden sonst mehrere Dokumente nacheinander gesetzt.
+        laufendeZuweisung?.cancel()
+        laufendeZuweisung = Task { @MainActor in
+            guard !Task.isCancelled, pdfView.document !== document else { return }
+            pdfView.document = document
+        }
+    }
+}
 
 /// Gemeinsame PDFView-Konfiguration fuer beide Plattformen.
 private func configure(_ pdfView: PDFView) {
