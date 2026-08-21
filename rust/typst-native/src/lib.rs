@@ -17,6 +17,18 @@ use typst::foundations::{Dict, Value};
 use typst::layout::PagedDocument;
 use world::{ImageFile, PackageFile, TypstWorld};
 
+/// Begrenzt den prozessglobalen comemo-Memoisierungs-Cache von Typst.
+///
+/// Ohne diesen Aufruf waechst der Cache mit jeder Kompilierung unbegrenzt:
+/// Jeder Lauf baut eine frische World mit eigenen Font-Kopien, und die
+/// Cache-Eintraege halten diese Kopien dauerhaft fest (mehrere hundert MB
+/// pro Lauf). Die Typst-CLI ruft evict() nach jedem Lauf genauso auf.
+/// max_age = 2 erhaelt die Eintraege der letzten Laeufe, damit der
+/// inkrementelle Editor-Preview weiterhin vom Cache profitiert.
+fn cache_begrenzen() {
+    comemo::evict(2);
+}
+
 /// Kompiliert Typst-Quelltext zu PDF-Bytes.
 ///
 /// # Parameter
@@ -39,7 +51,7 @@ fn compile_to_pdf(
     // typst::compile gibt Warned<Result<...>> zurueck
     let warned = typst::compile::<PagedDocument>(&world);
 
-    match warned.output {
+    let result = match warned.output {
         Ok(document) => {
             let options = typst_pdf::PdfOptions::default();
             match typst_pdf::pdf(&document, &options) {
@@ -56,7 +68,9 @@ fn compile_to_pdf(
         Err(diagnostics) => Err(TypstCompilationError::from_source_diagnostics(
             &world, diagnostics,
         )),
-    }
+    };
+    cache_begrenzen();
+    result
 }
 
 /// Kompiliert Typst-Quelltext zu SVG-Strings (einer pro Seite).
@@ -80,7 +94,7 @@ fn compile_to_svg(
 
     let warned = typst::compile::<PagedDocument>(&world);
 
-    match warned.output {
+    let result = match warned.output {
         Ok(document) => {
             let svgs: Vec<String> = document
                 .pages
@@ -92,7 +106,9 @@ fn compile_to_svg(
         Err(diagnostics) => Err(TypstCompilationError::from_source_diagnostics(
             &world, diagnostics,
         )),
-    }
+    };
+    cache_begrenzen();
+    result
 }
 
 /// Ergebnis einer Kompilierung mit Flag-Kontrakt:
@@ -138,7 +154,7 @@ fn compile_to_pdf_with_flags(
 
     let warned = typst::compile::<PagedDocument>(&world);
 
-    match warned.output {
+    let result = match warned.output {
         Ok(document) => {
             // Output-Flags im selben Lauf extrahieren (kein zweites Kompilieren).
             let ausgaben_json = ausgaben::extrahiere_ausgaben(&document);
@@ -161,7 +177,9 @@ fn compile_to_pdf_with_flags(
         Err(diagnostics) => Err(TypstCompilationError::from_source_diagnostics(
             &world, diagnostics,
         )),
-    }
+    };
+    cache_begrenzen();
+    result
 }
 
 uniffi::setup_scaffolding!();
