@@ -83,11 +83,6 @@ let package = Package(
             name: "TypstCompilerKit",
             dependencies: ["TypstNativeBindings", "TypstAssetKit"],
             path: "Sources/TypstCompilerKit",
-            // mo-tools wird als Ressource gebuendelt (Opt-in via MoToolsPackage,
-            // nie automatisch in Kompilierlaeufe injiziert).
-            resources: [
-                .copy("TypstPackages/mo-tools")
-            ],
             swiftSettings: appIsolationSettings
         ),
 

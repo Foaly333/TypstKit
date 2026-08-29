@@ -1,6 +1,0 @@
-[package]
-name = "mo-tools"
-version = "0.1.0"
-entrypoint = "lib.typ"
-authors = ["Daniel Stockhausen"]
-description = "Flag-Kontrakt zwischen Typst-Dokumenten und der MaterialOrganizer-App"

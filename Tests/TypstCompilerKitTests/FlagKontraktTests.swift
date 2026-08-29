@@ -100,46 +100,10 @@ struct FlagKontraktTests {
         #expect(typen.daten["n"] == MoJSONWert.null)
     }
 
-    // B4.3: gebündeltes mo-tools kompiliert und meldet die erwarteten Typen
-    @Test func moToolsPaketKompiliertUndMeldet() async throws {
-        let paket = MoToolsPackage.files
-        #expect(paket.count == 4, "typst.toml + 3 .typ-Dateien erwartet")
-
-        let compiler = NativeTypstCompiler()
-        let quelle = """
-        #import "@local/mo-tools:0.1.0": *
-        #mo-kopien(klassensatz: true)
-        #mo-dauer(minuten: 10)
-        = Blatt
-        #mo-timer(minuten: 5)
-        #mo-punkte(3)
-        #mo-quiz(frage: "2+2?", antworten: ("3", "4"), richtig: 2)
-        #mo-variante[A-Fassung][B-Fassung]
-        #mo-aufdecken[Verdeckter Inhalt]
-        #mo-medium(titel: "Video", url: "https://example.org")
-        #mo-hausaufgabe("S. 10, Nr. 1")
-        """
-
-        let ergebnis = try await compiler.kompiliereMitFlags(
-            source: quelle, packageFiles: paket, imageFiles: [], inputs: ["variante": "2"]
-        )
-        #expect(!ergebnis.pdf.isEmpty)
-        #expect(PDFDocument(data: ergebnis.pdf) != nil)
-        #expect(pdfText(ergebnis.pdf).contains("B-Fassung"))
-
-        let typen = Set(ergebnis.ausgaben.map(\.typ))
-        let erwartet: Set<String> = [
-            "kopien", "dauer", "timer", "punkte", "quiz",
-            "kann", "aufdecken", "medium", "hausaufgabe",
-        ]
-        #expect(typen == erwartet)
-
-        // Lösungsmodus: reserviertes Flag "loesung" wirkt im Quiz
-        let loesung = try await compiler.kompiliereMitFlags(
-            source: quelle, packageFiles: paket, imageFiles: [], inputs: ["loesung": "ja"]
-        )
-        #expect(pdfText(loesung.pdf).contains("✗"))
-    }
+    // B4.3 ist mit dem Paket in die App gewandert
+    // (MaterialOrganizerTests/Features/Vorbereitung/MoToolsTests.swift):
+    // welche Makros es gibt und was sie melden, ist App-Semantik. Hier bleibt
+    // der Mechanismus — Label-Extraktion, Payload-Typen, Additivitaet.
 
     // B4.4: Additivitäts-Nachweis — Konformer mit NUR den alten Requirements
     // kompiliert und liefert über den Extension-Default (pdf, []).

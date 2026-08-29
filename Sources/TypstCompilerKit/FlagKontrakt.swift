@@ -211,43 +211,8 @@ extension NativeTypstCompiler {
     }
 }
 
-// MARK: - Gebündeltes mo-tools-Paket
-
-/// Stellt das gebündelte Typst-Paket `mo-tools` als `[PackageFile]` bereit.
-///
-/// Opt-in (E5.3): TypstKit hängt das Paket NIE automatisch an Kompilierläufe
-/// an — die App gibt `MoToolsPackage.files` explizit als `packageFiles` mit
-/// und importiert im Dokument `@local/mo-tools:0.1.0`.
-public nonisolated enum MoToolsPackage {
-    /// Paket-Namespace (Import: `@local/mo-tools:0.1.0`)
-    public static let namespace = "local"
-    /// Paket-Name
-    public static let name = "mo-tools"
-    /// Paket-Version
-    public static let version = "0.1.0"
-    /// Import-Zeile für Typst-Dokumente
-    public static let importZeile = "#import \"@local/mo-tools:0.1.0\": *"
-
-    /// Die Paketdateien im selben Format wie `additionalPackageFiles`.
-    /// Es werden nur die vom Compiler benötigten Dateien geliefert
-    /// (typst.toml + *.typ, ohne probe.typ/install.sh/README).
-    public static var files: [PackageFile] {
-        guard let baseURL = Bundle.module.url(forResource: "mo-tools", withExtension: nil) else {
-            return []
-        }
-        let dateinamen = ["typst.toml", "lib.typ", "kontrakt.typ", "elemente.typ"]
-        var files: [PackageFile] = []
-        for name in dateinamen {
-            let url = baseURL.appendingPathComponent(name)
-            guard let content = try? Data(contentsOf: url) else { continue }
-            files.append(PackageFile(
-                namespace: namespace,
-                name: Self.name,
-                version: version,
-                path: name,
-                content: content
-            ))
-        }
-        return files
-    }
-}
+// Das Typst-Paket `mo-tools` liegt seit August 2026 in der App
+// (MaterialOrganizer: Shared/Resources/MoTools, Loader `MoToolsPackage`).
+// Seine Makros sind App-Semantik; hier bleibt nur der Mechanismus — die
+// Extraktion des Labels <mo-element> und `kompiliereMitFlags`. Lokale Pakete
+// reicht die App wie jedes andere über `packageFiles` herein.
