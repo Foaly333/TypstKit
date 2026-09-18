@@ -27,6 +27,9 @@ public struct TypstEditor<ExtraMenu: View>: View {
     @State private var debounceTask: Task<Void, Never>? = nil
     @FocusState private var isFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.typstEditorInsertion) private var insertion
+    /// Erst nach dem ersten Fokus ist die Selektion eine echte Cursorposition.
+    @State private var hadFocus = false
 
     /// Tokenisierter Roh-Text (anstelle des Base64 steht ein Token)
     @State private var rawTextWithTokens: String = ""
@@ -194,6 +197,13 @@ public struct TypstEditor<ExtraMenu: View>: View {
                     internalText = AttributedString(display)
                     applySyntaxHighlight()
                 }
+                .onChange(of: isFocused) { _, focused in
+                    if focused { hadFocus = true }
+                }
+                .onChange(of: insertion?.pending ?? []) { _, pending in
+                    guard !pending.isEmpty, let insertion else { return }
+                    for code in insertion.takeAll() { insertAtCursor(code) }
+                }
                 .toolbar {
                     toolbar
                 }
@@ -220,6 +230,23 @@ public struct TypstEditor<ExtraMenu: View>: View {
         #else
         TextEditor(text: $internalText, selection: $selection)
         #endif
+    }
+
+    /// Fuegt Code als eigene Zeile an der Cursorposition ein (bzw. am Ende, wenn der
+    /// Editor noch nie fokussiert war) und gibt den Stand sofort nach aussen — ohne
+    /// Debounce, damit ein Schliessen der View die Einfuegung nicht verliert.
+    private func insertAtCursor(_ code: String) {
+        if hadFocus {
+            internalText.replaceSelection(&selection, withCharacters: "\n" + code + "\n")
+        } else {
+            let current = String(internalText.characters)
+            let separator = current.isEmpty || current.hasSuffix("\n") ? "" : "\n"
+            internalText.append(AttributedString(separator + code))
+        }
+        let tokenized = controller.displayToTokenized(String(internalText.characters), mapping: base64Mapping)
+        rawTextWithTokens = tokenized
+        text = AttributedString(controller.restoreBase64(from: tokenized, mapping: base64Mapping))
+        applySyntaxHighlight()
     }
 
     func applySyntaxHighlight() {
