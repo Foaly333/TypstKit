@@ -100,6 +100,7 @@ let controller = NativeTypstController(
 - `extraMenuItems` — zusätzliche Menüpunkte im Werkzeug-Menü (z.B. Snippets, Bildimport, KI-Generierung)
 - `autoCompile: Binding<Bool>?` — externer Zustand; ohne Binding wird intern AppStorage (`TypstKit.autoCompile`) verwendet
 - `layout: NativeTypstEditorLayout` — `.editorAndPreview` (Standard: Editor mit eingebauter Vorschau und Trenner) oder `.editorOnly` (nur Editor)
+- `toolbarItems: NativeTypstEditorToolbarItems` — eigene Toolbar-Einträge des Editors: `.autoCompileToggle`, `.compileButton`, `.exportButton`; Standard `.all`, `[]` für keine
 
 ### Editor und Vorschau getrennt anordnen
 
@@ -113,6 +114,26 @@ HStack {
     NativeTypstControllerPreview(controller: controller)   // PDF, Fehlerliste, Fortschritt
 }
 ```
+
+Die Toolbar-Einträge des Editors (Schalter „Auto-Kompilieren“, Knopf „Kompilieren“, Knopf „PDF exportieren“) hängen unabhängig vom `layout` an der umgebenden Navigation. Hat die App eine eigene Toolbar, schaltet sie diese Einträge mit `toolbarItems: []` ab (oder wählt einzelne, z. B. `[.autoCompileToggle]`) und löst die Funktionen selbst aus:
+
+```swift
+NativeTypstEditorView(
+    text: $code, compiler: compiler, controller: controller,
+    autoCompile: $autoCompile,          // Auto-Kompilieren: eigener Schalter der App
+    layout: .editorOnly,
+    toolbarItems: [],
+    sourceBuilder: sourceBuilder
+)
+
+// Kompilieren (z. B. im Kopf des Vorschau-Bereichs):
+controller.compileNow(source: sourceBuilder(String(code.characters)))
+
+// Export (z. B. im Menü „Mehr“): temporäre PDF-Datei, danach Share-Sheet/fileExporter der App
+if let url = controller.createTemporaryPDFFile(title: titel) { … }
+```
+
+Auto-Kompilieren (entprellt) läuft weiterhin in der Editor-View, solange `autoCompile` an ist; die App braucht dafür nichts zu tun. Für Knöpfe der App eignen sich `controller.isCompiling` (Kompilieren sperren) und `controller.pdfData != nil` (Export freigeben).
 
 Der Controller wird beim ersten Erscheinen der Editor-View übernommen; ein später übergebener anderer Controller wird ignoriert. Verschwindet die Editor-View, bricht sie eine geplante Kompilierung ab; der letzte Stand bleibt in der Vorschau sichtbar.
 

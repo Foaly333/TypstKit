@@ -9,7 +9,9 @@
 //  Layout: Responsive Split-View (horizontal ab 800pt, sonst vertikal).
 //  Mit `layout: .editorOnly` entfallen Vorschau und Trenner; die Vorschau
 //  haengt dann als `NativeTypstControllerPreview` am selben Controller
-//  an anderer Stelle der Hierarchie.
+//  an anderer Stelle der Hierarchie. Die eigenen Toolbar-Eintraege
+//  (Auto-Kompilieren, Kompilieren, Export) lassen sich unabhaengig davon
+//  ueber `toolbarItems:` abschalten.
 //
 //  App-spezifische Quelltext-Zusammensetzung (Header, Snippets etc.)
 //  wird ueber `sourceBuilder` injiziert; zusaetzliche Editor-Menuepunkte
@@ -27,11 +29,37 @@ public enum NativeTypstEditorLayout: Sendable, Hashable {
     /// Nur der Editor, ohne eingebaute Vorschau und ohne Trenner.
     ///
     /// Kompiliert wird weiterhin ueber den Controller der View (Auto-Compile
-    /// mit Debounce, manueller Knopf, Export in der Toolbar). Die Vorschau zeigt
+    /// mit Debounce; Knoepfe gemaess `toolbarItems`). Die Vorschau zeigt
     /// ein `NativeTypstControllerPreview` an beliebiger Stelle, das **denselben**
     /// Controller erhaelt — dafuer den Controller ausserhalb anlegen und per
     /// `controller:` uebergeben. Die Vorschau beobachtet nur, sie kompiliert nicht.
     case editorOnly
+}
+
+/// Eintraege, die `NativeTypstEditorView` in die Toolbar der umgebenden
+/// Navigation haengt. Unabhaengig von `NativeTypstEditorLayout`.
+///
+/// Standard ist `.all` (bisheriges Verhalten). Eine App mit eigener Toolbar
+/// waehlt `[]` (keine Eintraege) und loest die Funktionen selbst aus:
+/// - Auto-Kompilieren ueber das `autoCompile`-Binding,
+/// - Kompilieren ueber `NativeTypstController.compileNow(source:)`,
+/// - Export ueber `NativeTypstController.createTemporaryPDFFile(title:)`.
+public struct NativeTypstEditorToolbarItems: OptionSet, Sendable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    /// Schalter „Auto-Kompilieren“.
+    public static let autoCompileToggle = NativeTypstEditorToolbarItems(rawValue: 1 << 0)
+    /// Knopf „Kompilieren“ (erscheint nur bei ausgeschaltetem Auto-Kompilieren).
+    public static let compileButton = NativeTypstEditorToolbarItems(rawValue: 1 << 1)
+    /// Knopf „PDF exportieren“ (Share-Sheet auf iOS, Sichern-Dialog auf macOS).
+    public static let exportButton = NativeTypstEditorToolbarItems(rawValue: 1 << 2)
+
+    /// Alle Eintraege (Standard).
+    public static let all: NativeTypstEditorToolbarItems = [.autoCompileToggle, .compileButton, .exportButton]
 }
 
 public struct NativeTypstEditorView<ExtraMenu: View>: View {
@@ -59,6 +87,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     private let handleThickness: CGFloat = 8
     private let exportTitle: String
     private let layout: NativeTypstEditorLayout
+    private let toolbarItems: NativeTypstEditorToolbarItems
     private let readOnlyProvider: (any TypstProvidingProtocol)?
 
     /// Baut aus dem aktuellen Klartext den kompilierbaren Provider.
@@ -79,6 +108,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     ///   - exportTitle: Titel fuer den PDF-Export-Dateinamen
     ///   - autoCompile: Optionales externes Binding fuer den Auto-Kompilier-Zustand
     ///   - layout: Mit oder ohne eingebaute Vorschau (Standard: mit)
+    ///   - toolbarItems: Eigene Toolbar-Eintraege des Editors (Standard: alle)
     ///   - sourceBuilder: Baut aus dem Klartext den kompilierbaren Provider
     ///     (Standard: Klartext unveraendert)
     ///   - extraMenuItems: Zusaetzliche Menuepunkte fuer den Editor
@@ -89,12 +119,14 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         exportTitle: String = "",
         autoCompile: Binding<Bool>? = nil,
         layout: NativeTypstEditorLayout = .editorAndPreview,
+        toolbarItems: NativeTypstEditorToolbarItems = .all,
         sourceBuilder: @escaping (String) -> any TypstProvidingProtocol = { $0 },
         @ViewBuilder extraMenuItems: @escaping () -> ExtraMenu
     ) {
         self._text = text
         self.exportTitle = exportTitle
         self.layout = layout
+        self.toolbarItems = toolbarItems
         self.externalAutoCompile = autoCompile
         self.sourceBuilder = sourceBuilder
         self.readOnlyProvider = nil
@@ -106,17 +138,20 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
 
     /// Erstellt die View mit einem TypstProvidingProtocol (read-only).
     /// Fuer aggregierte Typen, deren Typst nicht direkt geaendert werden kann.
+    /// Parameter wie beim editierbaren Init; `toolbarItems` Standard: alle.
     public init(
         provider: any TypstProvidingProtocol,
         compiler: NativeTypstCompilerProtocol,
         controller: NativeTypstController? = nil,
         autoCompile: Binding<Bool>? = nil,
         layout: NativeTypstEditorLayout = .editorAndPreview,
+        toolbarItems: NativeTypstEditorToolbarItems = .all,
         @ViewBuilder extraMenuItems: @escaping () -> ExtraMenu
     ) {
         self._text = .constant(AttributedString(provider.typst))
         self.exportTitle = provider.title
         self.layout = layout
+        self.toolbarItems = toolbarItems
         self.externalAutoCompile = autoCompile
         self.sourceBuilder = { $0 }
         self.readOnlyProvider = provider
@@ -151,15 +186,17 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
             plainText = String(text.characters)
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Toggle(isOn: autoCompile) {
-                    Label(
-                        "Auto-Kompilieren",
-                        systemImage: autoCompile.wrappedValue ? "bolt.circle.fill" : "bolt.slash.circle"
-                    )
+            if toolbarItems.contains(.autoCompileToggle) {
+                ToolbarItem(placement: .primaryAction) {
+                    Toggle(isOn: autoCompile) {
+                        Label(
+                            "Auto-Kompilieren",
+                            systemImage: autoCompile.wrappedValue ? "bolt.circle.fill" : "bolt.slash.circle"
+                        )
+                    }
                 }
             }
-            if !autoCompile.wrappedValue {
+            if toolbarItems.contains(.compileButton), !autoCompile.wrappedValue {
                 ToolbarItem(placement: .primaryAction) {
                     NativeTypstManualCompileButton(
                         controller: controller,
@@ -171,13 +208,15 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
                     )
                 }
             }
-            ToolbarItem(placement: .primaryAction) {
-                NativeTypstExportButton(
-                    controller: controller,
-                    exportTitle: exportTitle,
-                    pdfExportURL: $pdfExportURL,
-                    showShareSheet: $showShareSheet
-                )
+            if toolbarItems.contains(.exportButton) {
+                ToolbarItem(placement: .primaryAction) {
+                    NativeTypstExportButton(
+                        controller: controller,
+                        exportTitle: exportTitle,
+                        pdfExportURL: $pdfExportURL,
+                        showShareSheet: $showShareSheet
+                    )
+                }
             }
         }
         #if os(iOS)
@@ -315,6 +354,7 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
         exportTitle: String = "",
         autoCompile: Binding<Bool>? = nil,
         layout: NativeTypstEditorLayout = .editorAndPreview,
+        toolbarItems: NativeTypstEditorToolbarItems = .all,
         sourceBuilder: @escaping (String) -> any TypstProvidingProtocol = { $0 }
     ) {
         self.init(
@@ -324,6 +364,7 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
             exportTitle: exportTitle,
             autoCompile: autoCompile,
             layout: layout,
+            toolbarItems: toolbarItems,
             sourceBuilder: sourceBuilder,
             extraMenuItems: { EmptyView() }
         )
@@ -334,7 +375,8 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
         compiler: NativeTypstCompilerProtocol,
         controller: NativeTypstController? = nil,
         autoCompile: Binding<Bool>? = nil,
-        layout: NativeTypstEditorLayout = .editorAndPreview
+        layout: NativeTypstEditorLayout = .editorAndPreview,
+        toolbarItems: NativeTypstEditorToolbarItems = .all
     ) {
         self.init(
             provider: provider,
@@ -342,6 +384,7 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
             controller: controller,
             autoCompile: autoCompile,
             layout: layout,
+            toolbarItems: toolbarItems,
             extraMenuItems: { EmptyView() }
         )
     }
@@ -520,7 +563,8 @@ enum TypstPDFExport {
                 text: $text,
                 compiler: PreviewTypstCompiler(),
                 controller: controller,
-                layout: .editorOnly
+                layout: .editorOnly,
+                toolbarItems: []
             )
             Divider()
             NativeTypstControllerPreview(controller: controller)
