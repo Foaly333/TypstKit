@@ -100,7 +100,7 @@ let controller = NativeTypstController(
 - `extraMenuItems` — zusätzliche Menüpunkte im Werkzeug-Menü (z.B. Snippets, Bildimport, KI-Generierung)
 - `autoCompile: Binding<Bool>?` — externer Zustand; ohne Binding wird intern AppStorage (`TypstKit.autoCompile`) verwendet
 - `layout: NativeTypstEditorLayout` — `.editorAndPreview` (Standard: Editor mit eingebauter Vorschau und Trenner) oder `.editorOnly` (nur Editor)
-- `toolbarItems: NativeTypstEditorToolbarItems` — eigene Toolbar-Einträge des Editors: `.autoCompileToggle`, `.compileButton`, `.exportButton`; Standard `.all`, `[]` für keine
+- `toolbarItems: NativeTypstEditorToolbarItems` — eigene Toolbar-Einträge des Editors: `.autoCompileToggle`, `.compileButton`, `.exportButton`, `.toolsMenu` (Werkzeug-Menü); Standard `.all`, `[]` für keine
 
 ### Editor und Vorschau getrennt anordnen
 
@@ -136,6 +136,38 @@ if let url = controller.createTemporaryPDFFile(title: titel) { … }
 Auto-Kompilieren (entprellt) läuft weiterhin in der Editor-View, solange `autoCompile` an ist; die App braucht dafür nichts zu tun. Für Knöpfe der App eignen sich `controller.isCompiling` (Kompilieren sperren) und `controller.pdfData != nil` (Export freigeben).
 
 Der Controller wird beim ersten Erscheinen der Editor-View übernommen; ein später übergebener anderer Controller wird ignoriert. Verschwindet die Editor-View, bricht sie eine geplante Kompilierung ab; der letzte Stand bleibt in der Vorschau sichtbar.
+
+### Werkzeug-Menü an eigener Stelle
+
+Das Werkzeug-Menü des Editors (App-Einträge aus `extraMenuItems`, „Formatieren“, „Code kopieren“, „Code leeren“) hängt standardmäßig ebenfalls an der umgebenden Navigation. Ohne `.toolsMenu` in `toolbarItems` (bzw. mit `TypstEditor(text:showsToolsMenu: false)`) entfällt es dort; die App zeigt es selbst, z. B. im Kopf ihres Editor-Bereichs. Ein innerer `NavigationStack` zum Verbergen der Leiste ist dafür nicht nötig.
+
+Die Code-Werkzeuge erreicht die App über ein `TypstEditorActions`-Objekt im Environment des Editors. Der Editor führt die Aktion auf seinem aktuellen Stand aus — auch auf Tastendrücke, die noch nicht über das Binding nach außen gegangen sind — und gibt das Ergebnis sofort über `text` weiter. `TypstEditorToolsMenu` ist das fertige Menü dazu (gleiche Einträge und Symbole wie in der Toolbar, deaktiviert ohne angebundenen Editor):
+
+```swift
+@State private var aktionen = TypstEditorActions()
+
+VStack(spacing: 0) {
+    HStack {
+        Text("Typst").font(.headline)
+        Spacer()
+        TypstEditorToolsMenu(actions: aktionen) {
+            // App-Einträge wie bisher in extraMenuItems
+            Button("Bild einfügen…", systemImage: "photo.badge.plus") { … }
+        }
+    }
+    NativeTypstEditorView(
+        text: $code, compiler: compiler, controller: controller,
+        layout: .editorOnly,
+        toolbarItems: [],                      // keine Einträge in der Navigationsleiste
+        sourceBuilder: sourceBuilder
+    )
+    .environment(\.typstEditorActions, aktionen)
+}
+```
+
+Einzeln: `aktionen.format()`, `aktionen.copyCode()`, `aktionen.clear()`; `aktionen.isAttached` sagt, ob ein Editor angebunden ist. Ein `TypstEditorActions` gehört zu genau einem Editor; ohne angebundenen Editor verfallen Aufrufe. Code an der Cursorposition einfügen läuft weiterhin über `TypstEditorInsertion` (`\.typstEditorInsertion`).
+
+**Verhaltensänderung gegenüber 0.5.0:** Dort blieb das Werkzeug-Menü auch bei `toolbarItems: []` stehen. Jetzt ist es der Eintrag `.toolsMenu`; wer bei sonst leerer Toolbar das Menü in der Navigationsleiste behalten will, gibt `[.toolsMenu]` an.
 
 Snippet- und Bildimport-Einfügungen laufen über das `text`-Binding: externe Änderungen übernimmt der Editor automatisch (inklusive Base64-Maskierung).
 

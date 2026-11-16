@@ -10,8 +10,8 @@
 //  Mit `layout: .editorOnly` entfallen Vorschau und Trenner; die Vorschau
 //  haengt dann als `NativeTypstControllerPreview` am selben Controller
 //  an anderer Stelle der Hierarchie. Die eigenen Toolbar-Eintraege
-//  (Auto-Kompilieren, Kompilieren, Export) lassen sich unabhaengig davon
-//  ueber `toolbarItems:` abschalten.
+//  (Auto-Kompilieren, Kompilieren, Export, Werkzeug-Menue) lassen sich
+//  unabhaengig davon ueber `toolbarItems:` abschalten.
 //
 //  App-spezifische Quelltext-Zusammensetzung (Header, Snippets etc.)
 //  wird ueber `sourceBuilder` injiziert; zusaetzliche Editor-Menuepunkte
@@ -43,7 +43,11 @@ public enum NativeTypstEditorLayout: Sendable, Hashable {
 /// waehlt `[]` (keine Eintraege) und loest die Funktionen selbst aus:
 /// - Auto-Kompilieren ueber das `autoCompile`-Binding,
 /// - Kompilieren ueber `NativeTypstController.compileNow(source:)`,
-/// - Export ueber `NativeTypstController.createTemporaryPDFFile(title:)`.
+/// - Export ueber `NativeTypstController.createTemporaryPDFFile(title:)`,
+/// - Werkzeug-Menue ueber `TypstEditorToolsMenu` + `TypstEditorActions`.
+///
+/// Hinweis: Bis 0.5.0 blieb das Werkzeug-Menue auch bei `[]` stehen; seither ist es
+/// der Eintrag `.toolsMenu`. Wer es behalten will, gibt `[.toolsMenu]` an.
 public struct NativeTypstEditorToolbarItems: OptionSet, Sendable, Hashable {
     public let rawValue: Int
 
@@ -57,9 +61,13 @@ public struct NativeTypstEditorToolbarItems: OptionSet, Sendable, Hashable {
     public static let compileButton = NativeTypstEditorToolbarItems(rawValue: 1 << 1)
     /// Knopf „PDF exportieren“ (Share-Sheet auf iOS, Sichern-Dialog auf macOS).
     public static let exportButton = NativeTypstEditorToolbarItems(rawValue: 1 << 2)
+    /// Werkzeug-Menue des Editors (App-Eintraege aus `extraMenuItems`, Formatieren,
+    /// Code kopieren, Code leeren). Ohne diesen Eintrag zeigt die App das Menue
+    /// selbst: `TypstEditorToolsMenu` mit `TypstEditorActions` im Environment.
+    public static let toolsMenu = NativeTypstEditorToolbarItems(rawValue: 1 << 3)
 
     /// Alle Eintraege (Standard).
-    public static let all: NativeTypstEditorToolbarItems = [.autoCompileToggle, .compileButton, .exportButton]
+    public static let all: NativeTypstEditorToolbarItems = [.autoCompileToggle, .compileButton, .exportButton, .toolsMenu]
 }
 
 public struct NativeTypstEditorView<ExtraMenu: View>: View {
@@ -237,7 +245,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     private var content: some View {
         switch layout {
         case .editorOnly:
-            TypstEditor(text: $text, extraMenuItems: extraMenuItems)
+            TypstEditor(text: $text, showsToolsMenu: toolbarItems.contains(.toolsMenu), extraMenuItems: extraMenuItems)
         case .editorAndPreview:
             GeometryReader { geo in
                 let totalW = geo.size.width
@@ -273,7 +281,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         let rightWidth = max(300, totalWidth - leftWidth - handleThickness)
 
         HStack(spacing: 0) {
-            TypstEditor(text: $text, extraMenuItems: extraMenuItems)
+            TypstEditor(text: $text, showsToolsMenu: toolbarItems.contains(.toolsMenu), extraMenuItems: extraMenuItems)
                 .frame(width: leftWidth, height: totalHeight)
 
             NativeTypstVerticalDividerHandle()
@@ -296,7 +304,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         let bottomHeight = max(minPaneHeight, totalHeight - topHeight - handleThickness)
 
         VStack(spacing: 0) {
-            TypstEditor(text: $text, extraMenuItems: extraMenuItems)
+            TypstEditor(text: $text, showsToolsMenu: toolbarItems.contains(.toolsMenu), extraMenuItems: extraMenuItems)
                 .frame(height: topHeight)
 
             NativeTypstHorizontalDividerHandle()
@@ -557,15 +565,25 @@ enum TypstPDFExport {
 #Preview("Nur Editor + externe Vorschau") {
     @Previewable @State var text = AttributedString("= Hallo Welt\n\nDies ist ein Test.")
     @Previewable @State var controller = NativeTypstController(compiler: PreviewTypstCompiler())
+    @Previewable @State var actions = TypstEditorActions()
     NavigationStack {
         HStack(spacing: 0) {
-            NativeTypstEditorView(
-                text: $text,
-                compiler: PreviewTypstCompiler(),
-                controller: controller,
-                layout: .editorOnly,
-                toolbarItems: []
-            )
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Editor").font(.headline)
+                    Spacer()
+                    TypstEditorToolsMenu(actions: actions)
+                }
+                .padding(.horizontal)
+                NativeTypstEditorView(
+                    text: $text,
+                    compiler: PreviewTypstCompiler(),
+                    controller: controller,
+                    layout: .editorOnly,
+                    toolbarItems: []
+                )
+                .environment(\.typstEditorActions, actions)
+            }
             Divider()
             NativeTypstControllerPreview(controller: controller)
         }

@@ -40,16 +40,24 @@ public struct TypstEditor<ExtraMenu: View>: View {
 
     /// Zusaetzliche App-spezifische Menuepunkte (Snippets, Bildimport, KI etc.)
     private let extraMenuItems: () -> ExtraMenu
+    /// Haengt der Editor sein Werkzeug-Menue in die Toolbar der umgebenden Navigation?
+    private let showsToolsMenu: Bool
+    @Environment(\.typstEditorActions) private var actions
 
     /// Erstellt den Editor.
     /// - Parameters:
     ///   - text: Binding zum Typst-Quelltext (inkl. Base64)
+    ///   - showsToolsMenu: Werkzeug-Menue in der Toolbar der umgebenden Navigation
+    ///     (Standard: ja). Ohne zeigt die App es selbst — `TypstEditorToolsMenu` mit
+    ///     `TypstEditorActions` im Environment.
     ///   - extraMenuItems: Zusaetzliche Menuepunkte fuer das Werkzeug-Menue
     public init(
         text: Binding<AttributedString>,
+        showsToolsMenu: Bool = true,
         @ViewBuilder extraMenuItems: @escaping () -> ExtraMenu
     ) {
         self._text = text
+        self.showsToolsMenu = showsToolsMenu
         self.extraMenuItems = extraMenuItems
     }
 
@@ -80,47 +88,52 @@ public struct TypstEditor<ExtraMenu: View>: View {
 
     @ToolbarContentBuilder
     var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                // App-spezifische Menuepunkte (Snippets, Bildimport, KI ...)
-                extraMenuItems()
-
-                Divider()
-
-                // Code-Werkzeuge
-                Button {
-                    let externalRaw = controller.restoreBase64(from: rawTextWithTokens, mapping: base64Mapping)
-                    let formattedExternal = controller.formattedIndent(from: externalRaw)
-                    let result = controller.extractBase64Tokens(from: formattedExternal)
-                    rawTextWithTokens = result.tokenized
-                    base64Mapping = result.mapping
-                    let display = controller.tokenizedToDisplay(rawTextWithTokens, mapping: base64Mapping)
-                    internalText = AttributedString(display)
-                    text = AttributedString(formattedExternal)
-                } label: {
-                    Label("Formatieren", systemImage: "wand.and.stars")
-                }
-
-                Button {
-                    let externalRaw = controller.restoreBase64(from: rawTextWithTokens, mapping: base64Mapping)
-                    Self.copyToPasteboard(externalRaw)
-                } label: {
-                    Label("Code kopieren", systemImage: "doc.on.doc")
-                }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    internalText = ""
-                    rawTextWithTokens = ""
-                    base64Mapping = [:]
-                    text = ""
-                } label: {
-                    Label("Code leeren", systemImage: "trash")
-                }
-            } label: {
-                Label("Typst-Werkzeuge", systemImage: "wand.and.stars.inverse")
+        if showsToolsMenu {
+            ToolbarItem(placement: .primaryAction) {
+                TypstEditorToolsMenuButton(
+                    format: formatCode,
+                    copyCode: copyCode,
+                    clear: clearCode,
+                    extraMenuItems: extraMenuItems
+                )
             }
+        }
+    }
+
+    // MARK: - Werkzeug-Aktionen (Toolbar-Menue und `TypstEditorActions`)
+
+    /// Rueckt den aktuellen Stand ein und gibt ihn sofort nach aussen.
+    private func formatCode() {
+        debounceTask?.cancel()
+        let externalRaw = controller.restoreBase64(from: rawTextWithTokens, mapping: base64Mapping)
+        let formattedExternal = controller.formattedIndent(from: externalRaw)
+        let result = controller.extractBase64Tokens(from: formattedExternal)
+        rawTextWithTokens = result.tokenized
+        base64Mapping = result.mapping
+        let display = controller.tokenizedToDisplay(rawTextWithTokens, mapping: base64Mapping)
+        internalText = AttributedString(display)
+        text = AttributedString(formattedExternal)
+        applySyntaxHighlight()
+    }
+
+    private func copyCode() {
+        let externalRaw = controller.restoreBase64(from: rawTextWithTokens, mapping: base64Mapping)
+        Self.copyToPasteboard(externalRaw)
+    }
+
+    private func clearCode() {
+        debounceTask?.cancel()
+        internalText = ""
+        rawTextWithTokens = ""
+        base64Mapping = [:]
+        text = ""
+    }
+
+    private func perform(_ command: TypstEditorActions.Command) {
+        switch command {
+        case .format: formatCode()
+        case .copyCode: copyCode()
+        case .clear: clearCode()
         }
     }
 
@@ -204,6 +217,10 @@ public struct TypstEditor<ExtraMenu: View>: View {
                     guard !pending.isEmpty, let insertion else { return }
                     for code in insertion.takeAll() { insertAtCursor(code) }
                 }
+                .onChange(of: actions?.pending ?? []) { _, pending in
+                    guard !pending.isEmpty, let actions else { return }
+                    for command in actions.takeAll() { perform(command) }
+                }
                 .toolbar {
                     toolbar
                 }
@@ -216,8 +233,12 @@ public struct TypstEditor<ExtraMenu: View>: View {
         )
         .shadow(radius: 6, y: 2)
         .padding()
+        .onAppear {
+            actions?.attach()
+        }
         .onDisappear {
             debounceTask?.cancel()
+            actions?.detach()
         }
     }
 
@@ -267,8 +288,8 @@ public struct TypstEditor<ExtraMenu: View>: View {
 // MARK: - Convenience-Init ohne Zusatz-Menue
 
 extension TypstEditor where ExtraMenu == EmptyView {
-    public init(text: Binding<AttributedString>) {
-        self.init(text: text, extraMenuItems: { EmptyView() })
+    public init(text: Binding<AttributedString>, showsToolsMenu: Bool = true) {
+        self.init(text: text, showsToolsMenu: showsToolsMenu, extraMenuItems: { EmptyView() })
     }
 }
 
