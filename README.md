@@ -20,7 +20,7 @@ Kein Server-Roundtrip, kein WebView: Typst-Quelltext wird direkt auf dem Gerät 
 |---|---|---|
 | `TypstAssetKit` | `TypstAssetStore`, `TypstDocumentImporter`, `TypstDocumentExporter`, `TypstImageReferenceScanner` — ohne Abhängigkeit auf die Rust-Binary | iOS + macOS |
 | `TypstCompilerKit` | FFI-Bindings, `NativeTypstCompiler`, `TypstPackageManager` (Registry-Downloads), `TypstImageResolver`, `NativeTypstController` | iOS + macOS |
-| `TypstEditorKit` | `TypstEditor`, `NativeTypstEditorView` (Split-View mit Vorschau), `NativeTypstRenderView`, `NativeTypstPDFPreview` | iOS + macOS |
+| `TypstEditorKit` | `TypstEditor`, `NativeTypstEditorView` (Split-View mit Vorschau oder nur Editor), `NativeTypstRenderView`, `NativeTypstPDFPreview`, `NativeTypstControllerPreview` | iOS + macOS |
 
 ## Voraussetzungen
 
@@ -99,6 +99,22 @@ let controller = NativeTypstController(
 - `sourceBuilder: (String) -> any TypstProvidingProtocol` — baut aus dem Editor-Klartext den kompilierbaren Quelltext (Header, Snippet-Präfixe etc.)
 - `extraMenuItems` — zusätzliche Menüpunkte im Werkzeug-Menü (z.B. Snippets, Bildimport, KI-Generierung)
 - `autoCompile: Binding<Bool>?` — externer Zustand; ohne Binding wird intern AppStorage (`TypstKit.autoCompile`) verwendet
+- `layout: NativeTypstEditorLayout` — `.editorAndPreview` (Standard: Editor mit eingebauter Vorschau und Trenner) oder `.editorOnly` (nur Editor)
+
+### Editor und Vorschau getrennt anordnen
+
+Mit `layout: .editorOnly` zeigt die View nur den Editor; Auto-Compile (Debounce), manueller Kompilier-Knopf und Export bleiben in der Toolbar. Die Vorschau hängt als `NativeTypstControllerPreview` an beliebiger Stelle und erhält **denselben** Controller. Sie beobachtet nur und kompiliert nie selbst, es gibt also genau einen Kompilierlauf.
+
+```swift
+@State private var controller = NativeTypstController(compiler: compiler, debounceDelay: 2000)
+
+HStack {
+    NativeTypstEditorView(text: $code, compiler: compiler, controller: controller, layout: .editorOnly)
+    NativeTypstControllerPreview(controller: controller)   // PDF, Fehlerliste, Fortschritt
+}
+```
+
+Der Controller wird beim ersten Erscheinen der Editor-View übernommen; ein später übergebener anderer Controller wird ignoriert. Verschwindet die Editor-View, bricht sie eine geplante Kompilierung ab; der letzte Stand bleibt in der Vorschau sichtbar.
 
 Snippet- und Bildimport-Einfügungen laufen über das `text`-Binding: externe Änderungen übernimmt der Editor automatisch (inklusive Base64-Maskierung).
 

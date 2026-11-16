@@ -7,6 +7,9 @@
 //  fuer die Anzeige. Laeuft auf iOS und macOS.
 //
 //  Layout: Responsive Split-View (horizontal ab 800pt, sonst vertikal).
+//  Mit `layout: .editorOnly` entfallen Vorschau und Trenner; die Vorschau
+//  haengt dann als `NativeTypstControllerPreview` am selben Controller
+//  an anderer Stelle der Hierarchie.
 //
 //  App-spezifische Quelltext-Zusammensetzung (Header, Snippets etc.)
 //  wird ueber `sourceBuilder` injiziert; zusaetzliche Editor-Menuepunkte
@@ -16,6 +19,20 @@
 import SwiftUI
 import PDFKit
 import TypstCompilerKit
+
+/// Darstellung von `NativeTypstEditorView`.
+public enum NativeTypstEditorLayout: Sendable, Hashable {
+    /// Editor und eingebaute PDF-Vorschau mit verschiebbarem Trenner (Standard).
+    case editorAndPreview
+    /// Nur der Editor, ohne eingebaute Vorschau und ohne Trenner.
+    ///
+    /// Kompiliert wird weiterhin ueber den Controller der View (Auto-Compile
+    /// mit Debounce, manueller Knopf, Export in der Toolbar). Die Vorschau zeigt
+    /// ein `NativeTypstControllerPreview` an beliebiger Stelle, das **denselben**
+    /// Controller erhaelt — dafuer den Controller ausserhalb anlegen und per
+    /// `controller:` uebergeben. Die Vorschau beobachtet nur, sie kompiliert nicht.
+    case editorOnly
+}
 
 public struct NativeTypstEditorView<ExtraMenu: View>: View {
     @Binding var text: AttributedString
@@ -41,6 +58,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     private let minPaneHeight: CGFloat = 120
     private let handleThickness: CGFloat = 8
     private let exportTitle: String
+    private let layout: NativeTypstEditorLayout
     private let readOnlyProvider: (any TypstProvidingProtocol)?
 
     /// Baut aus dem aktuellen Klartext den kompilierbaren Provider.
@@ -55,9 +73,12 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     ///   - text: Binding zum Typst-Quelltext
     ///   - compiler: Der zu verwendende Compiler-Service
     ///   - controller: Optionaler vorkonfigurierter Controller (z.B. mit
-    ///     iCloud-Bildkonfiguration oder zusaetzlichen Package-Dateien)
+    ///     iCloud-Bildkonfiguration oder zusaetzlichen Package-Dateien).
+    ///     Wird beim ersten Erscheinen uebernommen; bei `.editorOnly` ist er der
+    ///     gemeinsame Kompilierstand fuer eine externe Vorschau.
     ///   - exportTitle: Titel fuer den PDF-Export-Dateinamen
     ///   - autoCompile: Optionales externes Binding fuer den Auto-Kompilier-Zustand
+    ///   - layout: Mit oder ohne eingebaute Vorschau (Standard: mit)
     ///   - sourceBuilder: Baut aus dem Klartext den kompilierbaren Provider
     ///     (Standard: Klartext unveraendert)
     ///   - extraMenuItems: Zusaetzliche Menuepunkte fuer den Editor
@@ -67,11 +88,13 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         controller: NativeTypstController? = nil,
         exportTitle: String = "",
         autoCompile: Binding<Bool>? = nil,
+        layout: NativeTypstEditorLayout = .editorAndPreview,
         sourceBuilder: @escaping (String) -> any TypstProvidingProtocol = { $0 },
         @ViewBuilder extraMenuItems: @escaping () -> ExtraMenu
     ) {
         self._text = text
         self.exportTitle = exportTitle
+        self.layout = layout
         self.externalAutoCompile = autoCompile
         self.sourceBuilder = sourceBuilder
         self.readOnlyProvider = nil
@@ -88,10 +111,12 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         compiler: NativeTypstCompilerProtocol,
         controller: NativeTypstController? = nil,
         autoCompile: Binding<Bool>? = nil,
+        layout: NativeTypstEditorLayout = .editorAndPreview,
         @ViewBuilder extraMenuItems: @escaping () -> ExtraMenu
     ) {
         self._text = .constant(AttributedString(provider.typst))
         self.exportTitle = provider.title
+        self.layout = layout
         self.externalAutoCompile = autoCompile
         self.sourceBuilder = { $0 }
         self.readOnlyProvider = provider
@@ -106,17 +131,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
     }
 
     public var body: some View {
-        GeometryReader { geo in
-            let totalW = geo.size.width
-            let totalH = geo.size.height
-            let isSideBySide = totalW >= sideBySideMinWidth
-
-            if isSideBySide {
-                horizontalLayout(totalWidth: totalW, totalHeight: totalH)
-            } else {
-                verticalLayout(totalWidth: totalW, totalHeight: totalH)
-            }
-        }
+        content
         .onChange(of: text) { _, newVal in
             let newPlain = String(newVal.characters)
             guard newPlain != plainText else { return }
@@ -177,6 +192,28 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
         }
     }
 
+    // MARK: - Layout-Auswahl
+
+    @ViewBuilder
+    private var content: some View {
+        switch layout {
+        case .editorOnly:
+            TypstEditor(text: $text, extraMenuItems: extraMenuItems)
+        case .editorAndPreview:
+            GeometryReader { geo in
+                let totalW = geo.size.width
+                let totalH = geo.size.height
+                let isSideBySide = totalW >= sideBySideMinWidth
+
+                if isSideBySide {
+                    horizontalLayout(totalWidth: totalW, totalHeight: totalH)
+                } else {
+                    verticalLayout(totalWidth: totalW, totalHeight: totalH)
+                }
+            }
+        }
+    }
+
     // MARK: - Source Building
 
     /// Baut den passenden TypstProvider fuer den aktuellen Modus.
@@ -204,7 +241,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
                 .frame(width: handleThickness, height: totalHeight)
                 .gesture(horizontalDragGesture(totalWidth: totalWidth))
 
-            NativeTypstPDFPreviewPane(controller: controller)
+            NativeTypstControllerPreview(controller: controller)
                 .frame(width: rightWidth, height: totalHeight)
         }
         .animation(.snappy(duration: 0.12), value: hSplitRatio)
@@ -227,7 +264,7 @@ public struct NativeTypstEditorView<ExtraMenu: View>: View {
                 .frame(height: handleThickness)
                 .gesture(verticalDragGesture(totalHeight: totalHeight))
 
-            NativeTypstPDFPreviewPane(controller: controller)
+            NativeTypstControllerPreview(controller: controller)
                 .frame(height: bottomHeight)
         }
         .animation(.snappy(duration: 0.12), value: splitRatio)
@@ -277,6 +314,7 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
         controller: NativeTypstController? = nil,
         exportTitle: String = "",
         autoCompile: Binding<Bool>? = nil,
+        layout: NativeTypstEditorLayout = .editorAndPreview,
         sourceBuilder: @escaping (String) -> any TypstProvidingProtocol = { $0 }
     ) {
         self.init(
@@ -285,6 +323,7 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
             controller: controller,
             exportTitle: exportTitle,
             autoCompile: autoCompile,
+            layout: layout,
             sourceBuilder: sourceBuilder,
             extraMenuItems: { EmptyView() }
         )
@@ -294,13 +333,15 @@ extension NativeTypstEditorView where ExtraMenu == EmptyView {
         provider: any TypstProvidingProtocol,
         compiler: NativeTypstCompilerProtocol,
         controller: NativeTypstController? = nil,
-        autoCompile: Binding<Bool>? = nil
+        autoCompile: Binding<Bool>? = nil,
+        layout: NativeTypstEditorLayout = .editorAndPreview
     ) {
         self.init(
             provider: provider,
             compiler: compiler,
             controller: controller,
             autoCompile: autoCompile,
+            layout: layout,
             extraMenuItems: { EmptyView() }
         )
     }
@@ -353,19 +394,38 @@ struct NativeTypstManualCompileButton: View {
 
 // MARK: - PDF Preview Pane (isolierte Subview, um Fokus-Verlust zu vermeiden)
 
-/// Liest den Controller und rendert die PDF-Vorschau.
-/// Dadurch wird beim Neu-Rendern nach der Kompilierung nur diese Subview
-/// aktualisiert – nicht der TypstEditor, der den Fokus haelt.
-struct NativeTypstPDFPreviewPane: View {
+/// PDF-Vorschau, die den Kompilierstand eines `NativeTypstController` anzeigt.
+///
+/// Liest den Controller erst in ihrem eigenen `body`: Nach einer Kompilierung
+/// wird nur diese View neu gerendert – nicht der Elternteil und nicht der
+/// TypstEditor, der den Fokus haelt. Sie kompiliert selbst nie; das uebernimmt
+/// die `NativeTypstEditorView` (oder die App) am selben Controller.
+///
+/// Gegenstueck zu `NativeTypstEditorView(layout: .editorOnly, controller:)`.
+public struct NativeTypstControllerPreview: View {
     let controller: NativeTypstController
+    var onFullscreen: (() -> Void)?
+    var onExport: (() -> Void)?
 
-    var body: some View {
+    public init(
+        controller: NativeTypstController,
+        onFullscreen: (() -> Void)? = nil,
+        onExport: (() -> Void)? = nil
+    ) {
+        self.controller = controller
+        self.onFullscreen = onFullscreen
+        self.onExport = onExport
+    }
+
+    public var body: some View {
         NativeTypstPDFPreview(
             document: controller.pdfDocument,
             pdfDataCount: controller.pdfData?.count ?? 0,
             isCompiling: controller.isCompiling,
             errors: controller.compilationErrors,
-            errorSummary: controller.errorSummary
+            errorSummary: controller.errorSummary,
+            onFullscreen: onFullscreen,
+            onExport: onExport
         )
     }
 }
@@ -448,5 +508,22 @@ enum TypstPDFExport {
             text: $text,
             compiler: PreviewTypstCompiler()
         )
+    }
+}
+
+#Preview("Nur Editor + externe Vorschau") {
+    @Previewable @State var text = AttributedString("= Hallo Welt\n\nDies ist ein Test.")
+    @Previewable @State var controller = NativeTypstController(compiler: PreviewTypstCompiler())
+    NavigationStack {
+        HStack(spacing: 0) {
+            NativeTypstEditorView(
+                text: $text,
+                compiler: PreviewTypstCompiler(),
+                controller: controller,
+                layout: .editorOnly
+            )
+            Divider()
+            NativeTypstControllerPreview(controller: controller)
+        }
     }
 }
