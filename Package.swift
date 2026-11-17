@@ -109,5 +109,13 @@ let package = Package(
             dependencies: ["TypstCompilerKit"],
             path: "Tests/TypstCompilerKitTests"
         ),
+
+        // Tests fuer die reinen Rechnungen der Editor-Schicht (z. B. Lage der
+        // PDF-Vorschau). Linkt wie TypstCompilerKitTests gegen die Rust-Binary.
+        .testTarget(
+            name: "TypstEditorKitTests",
+            dependencies: ["TypstEditorKit"],
+            path: "Tests/TypstEditorKitTests"
+        ),
     ]
 )

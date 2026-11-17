@@ -131,15 +131,15 @@ struct NativeTypstPDFKitView: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+    func makeUIView(context: Context) -> TypstPDFView {
+        let pdfView = TypstPDFView()
         configure(pdfView)
-        pdfView.document = document
+        pdfView.uebernimm(document)
         context.coordinator.lastDataCount = dataCount
         return pdfView
     }
 
-    func updateUIView(_ uiView: PDFView, context: Context) {
+    func updateUIView(_ uiView: TypstPDFView, context: Context) {
         guard dataCount != context.coordinator.lastDataCount || uiView.document !== document else { return }
         context.coordinator.lastDataCount = dataCount
         context.coordinator.setze(document, in: uiView)
@@ -206,6 +206,13 @@ extension PDFDokumentSetzer {
         laufendeZuweisung?.cancel()
         laufendeZuweisung = Task { @MainActor in
             guard !Task.isCancelled, pdfView.document !== document else { return }
+            #if canImport(UIKit)
+            // Fokus, Zoom und Lage bleiben erhalten (siehe TypstPDFView).
+            if let typstView = pdfView as? TypstPDFView {
+                typstView.uebernimm(document)
+                return
+            }
+            #endif
             pdfView.document = document
         }
     }

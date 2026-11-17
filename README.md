@@ -8,6 +8,7 @@ Kein Server-Roundtrip, kein WebView: Typst-Quelltext wird direkt auf dem Gerät 
 
 - **Native Kompilierung** zu PDF und/oder SVG über eine in Rust geschriebene, per UniFFI angebundene Typst-Engine
 - **Fertige Editor-UI** mit Split-View, Syntax-Highlighting und Live-Vorschau
+- **Ruhige PDF-Vorschau** (iOS, ab 0.6.1): Ein neuer Kompilierstand nimmt dem Editor nicht den Fokus (die Tastatur bleibt offen); bei gleichem Seitenformat bleiben Zoom, Seite und Lage erhalten; ändert sich die Größe der Vorschau bei gezoomter Seite, bleibt der sichtbare Ausschnitt in der Mitte; das erste Dokument bzw. die ersten Seiten werden passend skaliert
 - **Automatische Package-Auflösung**: `#import`-Direktiven werden erkannt, aus der offiziellen Typst-Registry geladen und lokal gecacht (inklusive transitiver Abhängigkeiten)
 - **Bildauflösung** für lokale Dateien, iCloud-Container und Web-URLs, direkt aus dem Quelltext heraus — Pfade werden sowohl direkt in `image("…")` erkannt als auch über eine `#let`-Zuweisung, wie sie `TypstDocumentImporter` erzeugt
 - **Base64-Bilder auslagern**: `TypstAssetKit` ersetzt eingebettete Base64-Blöcke streamend durch Referenzen auf einen inhaltsadressierten Bild-Store und bettet sie beim Export wieder ein (siehe [ASSET-MIGRATION.md](ASSET-MIGRATION.md))
