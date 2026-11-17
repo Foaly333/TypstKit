@@ -88,6 +88,34 @@ nonisolated enum PDFLageRechnung {
         return min(max(index, 0), seitenzahl - 1)
     }
 
+    /// Merkt den Ausschnitt, den der Nutzer zuletzt selbst eingestellt hat, ueber
+    /// mehrere Groessenaenderungen hinweg.
+    ///
+    /// Jede Groessenaenderung rechnet vom gemerkten Anker aus, nicht vom gerade
+    /// sichtbaren Mittelpunkt. Sonst geht eine Achse verloren, auf der die Seite
+    /// zwischenzeitlich ganz hineinpasst (PDFKit zentriert sie dann): schmal ->
+    /// breit -> schmal stuende danach die Seitenmitte statt des alten Ausschnitts
+    /// in der Mitte. Scrollt oder zoomt der Nutzer, wird der Anker vergessen.
+    struct AnkerGedaechtnis<Anker> {
+        private(set) var gemerkt: Anker?
+
+        init() {}
+
+        /// Anker fuer eine Groessenaenderung: der gemerkte, sonst der sichtbare
+        /// (der dann gemerkt wird).
+        mutating func ankerFuerGroessenwechsel(sichtbar: () -> Anker?) -> Anker? {
+            if let gemerkt { return gemerkt }
+            gemerkt = sichtbar()
+            return gemerkt
+        }
+
+        /// Der Nutzer hat den Ausschnitt selbst veraendert (oder die Lage ist
+        /// nicht mehr vergleichbar): naechste Groessenaenderung rechnet neu.
+        mutating func vergiss() {
+            gemerkt = nil
+        }
+    }
+
     /// Ob eine Ansichtsgroesse fuer Lageberechnungen taugt (beide Seiten > 0).
     static func istBrauchbar(_ groesse: CGSize) -> Bool {
         groesse.width > 0 && groesse.height > 0

@@ -4,7 +4,8 @@
 //
 //  PDFView-Unterklasse der Vorschau (iOS). Ergaenzt PDFKit um drei Dinge:
 //  - Lage halten: Aendert sich die Groesse bei gezoomter Vorschau, bleibt der
-//    sichtbare Mittelpunkt (Seite + Punkt) an derselben Stelle.
+//    sichtbare Mittelpunkt (Seite + Punkt) an derselben Stelle. Bezug ist der
+//    Ausschnitt vor der ersten Groessenaenderung seit der letzten Nutzergeste.
 //  - Fokus nicht stehlen: Neues Dokument oder Eintritt ins Fenster machen die
 //    PDF-Dokumentansicht nicht zum First Responder (Tastatur des Editors bleibt).
 //  - Dokumentwechsel ohne Sprung: Gleiches Seitenformat -> Zoom, Seite und Lage
@@ -29,6 +30,13 @@ final class TypstPDFView: PDFView {
     private var letzteGroesse: CGSize = .zero
     /// Sperre gegen Wiedereintritt, waehrend der Offset korrigiert wird.
     private var passtLageAn = false
+    /// Ausschnitt, den der Nutzer zuletzt eingestellt hat — Bezug fuer alle
+    /// folgenden Groessenaenderungen, bis er selbst scrollt oder zoomt.
+    private var lageAnker = PDFLageRechnung.AnkerGedaechtnis<SeitenAnker>()
+    /// Laeuft gerade eine Massstabsaenderung, die nicht vom Nutzer kommt.
+    private var aendertMassstabSelbst = false
+    /// Scroll-Ansicht, an deren Gesten die Vorschau haengt.
+    private weak var beobachteteScrollAnsicht: UIScrollView?
 
     /// First Responder ausserhalb der Vorschau, der vor einer Zuweisung aktiv war.
     private weak var geschuetzterFokus: UIResponder?
@@ -56,6 +64,41 @@ final class TypstPDFView: PDFView {
             name: .PDFViewVisiblePagesChanged,
             object: self
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(massstabGeaendert(_:)),
+            name: .PDFViewScaleChanged,
+            object: self
+        )
+    }
+
+    // MARK: Nutzer veraendert den Ausschnitt
+
+    /// Haengt die Vorschau an Ziehen und Zoomen der inneren Scroll-Ansicht.
+    private func verbindeGesten() {
+        guard let scrollAnsicht = innereScrollAnsicht(), scrollAnsicht !== beobachteteScrollAnsicht else { return }
+        beobachteteScrollAnsicht = scrollAnsicht
+        scrollAnsicht.panGestureRecognizer.addTarget(self, action: #selector(nutzerGeste(_:)))
+        scrollAnsicht.pinchGestureRecognizer?.addTarget(self, action: #selector(nutzerGeste(_:)))
+    }
+
+    @objc private func nutzerGeste(_ geste: UIGestureRecognizer) {
+        if geste.state == .began || geste.state == .changed {
+            lageAnker.vergiss()
+        }
+    }
+
+    /// Zoom durch den Nutzer (auch Doppeltippen) vergisst den Anker.
+    @objc private func massstabGeaendert(_ notification: Notification) {
+        guard !aendertMassstabSelbst, !passtLageAn else { return }
+        lageAnker.vergiss()
+    }
+
+    private func mitEigenemMassstab(_ arbeit: () -> Void) {
+        let vorher = aendertMassstabSelbst
+        aendertMassstabSelbst = true
+        arbeit()
+        aendertMassstabSelbst = vorher
     }
 
     // MARK: Dokument setzen
@@ -73,19 +116,24 @@ final class TypstPDFView: PDFView {
         }
         let warAutomatisch = autoScales
         let massstab = scaleFactor
+        // Ein gemerkter Anker (Ausschnitt vor einer Groessenaenderung) hat Vorrang
+        // vor dem gerade sichtbaren Mittelpunkt.
         let anker = istGleichesFormat && PDFLageRechnung.istBrauchbar(bounds.size)
-            ? sichtbarerAnker(beiGroesse: bounds.size)
+            ? (lageAnker.gemerkt ?? sichtbarerAnker(beiGroesse: bounds.size))
             : nil
+        if !istGleichesFormat { lageAnker.vergiss() }
 
         mitFokusSchutz {
-            document = neues
-            bekannteSeitenzahl = neues.pageCount
-            if istGleichesFormat {
-                if !warAutomatisch { scaleFactor = massstab }
-                layoutIfNeeded()
-                if let anker { stelle(anker) }
-            } else if !hatteSeiten, neues.pageCount > 0 {
-                skalierePassend()
+            mitEigenemMassstab {
+                document = neues
+                bekannteSeitenzahl = neues.pageCount
+                if istGleichesFormat {
+                    if !warAutomatisch { scaleFactor = massstab }
+                    layoutIfNeeded()
+                    if let anker { stelle(anker) }
+                } else if !hatteSeiten, neues.pageCount > 0 {
+                    skalierePassend()
+                }
             }
         }
 
@@ -107,19 +155,24 @@ final class TypstPDFView: PDFView {
 
     override func layoutSubviews() {
         let neueGroesse = bounds.size
+        if autoScales { lageAnker.vergiss() }
         // Anker VOR dem Layout von PDFKit bestimmen: Offset und Dokumentansicht
         // sind dann noch im alten Zustand, die alte Mitte ist die der alten Groesse.
+        // Gerechnet wird vom gemerkten Anker aus (erste Groessenaenderung seit der
+        // letzten Nutzergeste merkt ihn), damit schmal -> breit -> schmal wieder
+        // denselben Ausschnitt zeigt, auch wenn die Seite dazwischen ganz hineinpasste.
         let anker: SeitenAnker? =
             !passtLageAn
             && !autoScales
             && PDFLageRechnung.istBrauchbar(letzteGroesse)
             && PDFLageRechnung.istBrauchbar(neueGroesse)
             && neueGroesse != letzteGroesse
-            ? sichtbarerAnker(beiGroesse: letzteGroesse)
+            ? lageAnker.ankerFuerGroessenwechsel { sichtbarerAnker(beiGroesse: letzteGroesse) }
             : nil
         let massstab = scaleFactor
 
-        super.layoutSubviews()
+        mitEigenemMassstab { super.layoutSubviews() }
+        verbindeGesten()
 
         if PDFLageRechnung.istBrauchbar(neueGroesse) {
             letzteGroesse = neueGroesse
@@ -202,7 +255,7 @@ final class TypstPDFView: PDFView {
             guard let self else { return }
             self.istNeuskalierungGeplant = false
             guard (self.document?.pageCount ?? 0) > 0 else { return }
-            self.mitFokusSchutz { self.skalierePassend() }
+            self.mitFokusSchutz { self.mitEigenemMassstab { self.skalierePassend() } }
         }
     }
 

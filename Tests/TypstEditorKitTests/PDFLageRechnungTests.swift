@@ -75,4 +75,53 @@ struct PDFLageRechnungTests {
         #expect(!PDFLageRechnung.istBrauchbar(CGSize(width: 0, height: 100)))
         #expect(!PDFLageRechnung.istBrauchbar(.zero))
     }
+
+    // MARK: Anker ueber mehrere Groessenaenderungen
+
+    @Test("Gemerkter Anker bleibt ueber Groessenaenderungen, bis er vergessen wird")
+    func ankerGedaechtnis() {
+        var gedaechtnis = PDFLageRechnung.AnkerGedaechtnis<CGFloat>()
+        #expect(gedaechtnis.ankerFuerGroessenwechsel { 150 } == 150)
+        #expect(gedaechtnis.ankerFuerGroessenwechsel { 300 } == 150)
+        gedaechtnis.vergiss()
+        #expect(gedaechtnis.ankerFuerGroessenwechsel { 300 } == 300)
+    }
+
+    /// Waagerechte Achse, Seite (gezoomt) 600 breit, linker Seitenrand sichtbar.
+    /// Schmal (300) -> breit (800, Seite passt, PDFKit zentriert: Offset -100)
+    /// -> wieder schmal. Anker als Inhaltskoordinate des sichtbaren Mittelpunkts.
+    private func offsetNachRueckkehr(mitGedaechtnis: Bool) -> CGFloat {
+        let seite: CGFloat = 600
+        var gedaechtnis = PDFLageRechnung.AnkerGedaechtnis<CGFloat>()
+        var offset: CGFloat = 0
+
+        // schmal -> breit: Anker = Mitte der schmalen Ansicht
+        var anker = gedaechtnis.ankerFuerGroessenwechsel { offset + 300 / 2 }!
+        offset = PDFLageRechnung.achse(
+            gewuenscht: offset + (anker - offset) - 800 / 2,
+            aktuell: -100, inhalt: seite, sichtbar: 800, vorn: 0, hinten: 0
+        )
+        #expect(offset == -100)
+        if !mitGedaechtnis { gedaechtnis.vergiss() }
+
+        // breit -> schmal: PDFKit setzt den Offset nach dem Layout auf 0
+        anker = gedaechtnis.ankerFuerGroessenwechsel { offset + 800 / 2 }!
+        let nachLayout: CGFloat = 0
+        return PDFLageRechnung.korrigierterOffset(
+            aktuell: CGPoint(x: nachLayout, y: 0),
+            anker: CGPoint(x: anker - nachLayout, y: 50),
+            ziel: CGPoint(x: 300 / 2, y: 50),
+            inhaltsGroesse: CGSize(width: seite, height: 2000),
+            sichtbareGroesse: CGSize(width: 300, height: 100),
+            einzug: .null
+        ).x
+    }
+
+    @Test("Schmal -> breit -> schmal zeigt mit gemerktem Anker wieder denselben Ausschnitt")
+    func rueckkehrGleicherAusschnitt() {
+        #expect(offsetNachRueckkehr(mitGedaechtnis: true) == 0)
+        // Gegenprobe: vom zentrierten Zwischenzustand aus gerechnet springt der
+        // Ausschnitt um die halbe Breite nach rechts (Befund 51 der App).
+        #expect(offsetNachRueckkehr(mitGedaechtnis: false) == 150)
+    }
 }
